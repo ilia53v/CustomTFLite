@@ -68,8 +68,4 @@ dependencies {
     implementation ("org.tensorflow:tensorflow-lite-gpu:2.9.0")
     implementation ("org.tensorflow:tensorflow-lite-support:0.4.2")
 
-
-    // ExoPlayer
-    implementation("androidx.media3:media3-exoplayer:1.3.1")
-    implementation("androidx.media3:media3-ui:1.3.1")
 }

@@ -1,159 +1,141 @@
 package com.antares.customtflite
 
+import java.io.FileInputStream
+import java.io.IOException
+import java.nio.channels.FileChannel
 import android.content.Context
 import android.graphics.Bitmap
-import android.os.Build
 import android.util.Log
-import org.tensorflow.lite.Interpreter
-import org.tensorflow.lite.gpu.GpuDelegate
-import org.tensorflow.lite.support.image.TensorImage
-import org.tensorflow.lite.support.model.Model
 import org.tensorflow.lite.DataType
+import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.Tensor
+import org.tensorflow.lite.gpu.GpuDelegate
 import org.tensorflow.lite.support.common.FileUtil
-import java.io.IOException
-import java.nio.ByteBuffer
+import org.tensorflow.lite.support.image.TensorImage
+import org.tensorflow.lite.support.tensorbuffer.TensorBuffer
 import java.nio.MappedByteBuffer
 
 class YoloV8Segmentor(private val context: Context) {
 
     companion object {
         private const val TAG = "YoloV8Segmentor"
-        private const val MODEL_FILE = "best.tflite"
-
-        // Размер входного изображения модели — подстрой под свою модель
-        private const val MODEL_INPUT_WIDTH = 640
-        private const val MODEL_INPUT_HEIGHT = 640
+        private const val MODEL_NAME = "best.tflite"
     }
 
     private var interpreter: Interpreter? = null
-    private var gpuDelegate: GpuDelegate? = null
+    private var inputWidth = 0
+    private var inputHeight = 0
+    private var gpuEnabled = false
 
     init {
+        initializeInterpreter()
+    }
+
+    private fun initializeInterpreter() {
         try {
-            val modelBuffer = loadModelFile()
-            interpreter = createInterpreterWithFallback(modelBuffer)
-            Log.i(TAG, "Interpreter initialized successfully")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize interpreter", e)
-            throw e
-        }
-    }
+            val model = loadModelFile(context, MODEL_NAME)
+            val options = Interpreter.Options()
 
-    private fun loadModelFile(): MappedByteBuffer {
-        return try {
-            FileUtil.loadMappedFile(context, MODEL_FILE)
-        } catch (e: IOException) {
-            Log.e(TAG, "Failed to load model file: $MODEL_FILE", e)
-            throw e
-        }
-    }
-
-    private fun createInterpreterWithFallback(modelBuffer: MappedByteBuffer): Interpreter {
-        val options = Interpreter.Options()
-
-        if (isGpuDelegateSupported()) {
-            try {
-                gpuDelegate = GpuDelegate()
-                options.addDelegate(gpuDelegate)
-                Log.i(TAG, "Trying to create interpreter with GPU delegate")
-                return Interpreter(modelBuffer, options)
-            } catch (e: Exception) {
-                Log.w(TAG, "GPU delegate initialization failed, fallback to CPU. Error: ${e.localizedMessage}")
-                gpuDelegate?.close()
-                gpuDelegate = null
-            }
-        } else {
-            Log.i(TAG, "GPU delegate not supported on this device, using CPU")
-        }
-
-        return Interpreter(modelBuffer, Interpreter.Options())
-    }
-
-    private fun isGpuDelegateSupported(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            Log.i(TAG, "GPU delegate requires Android 8.0+ (Oreo), current API: ${Build.VERSION.SDK_INT}")
-            return false
-        }
-        return true
-    }
-
-    /** Преобразует Bitmap в FloatArray с нормализацией [0,1] и размером под модель */
-    private fun preprocessBitmap(bitmap: Bitmap): FloatArray {
-        // Ресайз bitmap к MODEL_INPUT_WIDTH x MODEL_INPUT_HEIGHT
-        val resizedBitmap = Bitmap.createScaledBitmap(bitmap, MODEL_INPUT_WIDTH, MODEL_INPUT_HEIGHT, true)
-
-        // Модель ожидает float32 с нормализацией (0..1), порядок RGB
-        val input = FloatArray(MODEL_INPUT_WIDTH * MODEL_INPUT_HEIGHT * 3)
-
-        var idx = 0
-        for (y in 0 until MODEL_INPUT_HEIGHT) {
-            for (x in 0 until MODEL_INPUT_WIDTH) {
-                val pixel = resizedBitmap.getPixel(x, y)
-                // Получаем R, G, B как float от 0 до 1
-                input[idx++] = ((pixel shr 16 and 0xFF) / 255.0f)
-                input[idx++] = ((pixel shr 8 and 0xFF) / 255.0f)
-                input[idx++] = ((pixel and 0xFF) / 255.0f)
-            }
-        }
-        return input
-    }
-
-    /**
-     * Запускает сегментацию по Bitmap, возвращает контуры объектов
-     */
-    fun runSegmentation(bitmap: Bitmap): List<Contour> {
-        val inputData = preprocessBitmap(bitmap)
-        return segment(inputData)
-    }
-
-    fun segment(inputData: FloatArray): List<Contour> {
-        if (interpreter == null) {
-            Log.e(TAG, "Interpreter is not initialized")
-            return emptyList()
-        }
-
-        try {
-            // Примерные выходы (подстрой под свою модель)
-            val maskOutput = Array(1) { Array(128) { FloatArray(128) } }
-            val scoresOutput = Array(1) { FloatArray(100) }
-            val classesOutput = Array(1) { IntArray(100) }
-            val coordsOutput = Array(1) { Array(100) { FloatArray(4) } }
-
-            val outputs = mapOf(
-                0 to maskOutput,
-                1 to scoresOutput,
-                2 to classesOutput,
-                3 to coordsOutput
-            )
-
-            interpreter!!.runForMultipleInputsOutputs(arrayOf(inputData), outputs)
-
-            val contours = mutableListOf<Contour>()
-            val threshold = 0.5f
-
-            for (i in scoresOutput[0].indices) {
-                if (scoresOutput[0][i] > threshold) {
-                    val bbox = coordsOutput[0][i]
-                    val points = listOf(
-                        Pair(bbox[0], bbox[1]),
-                        Pair(bbox[0] + bbox[2], bbox[1]),
-                        Pair(bbox[0] + bbox[2], bbox[1] + bbox[3]),
-                        Pair(bbox[0], bbox[1] + bbox[3])
-                    )
-                    contours.add(Contour(points, scoresOutput[0][i], classesOutput[0][i]))
+            if (isGpuSupported()) {
+                try {
+                    val gpuDelegate = GpuDelegate()
+                    options.addDelegate(gpuDelegate)
+                    gpuEnabled = true
+                    Log.i(TAG, "GPU delegate applied successfully.")
+                } catch (e: Exception) {
+                    Log.e(TAG, "GPU delegate failed: ${e.message}. Falling back to CPU.")
+                    gpuEnabled = false
                 }
             }
 
-            return contours
+            interpreter = Interpreter(model, options)
+            if(interpreter == null){
+                Log.e("YoloV8Segmentor", "Failed to load model")
+            }
+            val inputTensor: Tensor = interpreter!!.getInputTensor(0)
+            inputHeight = inputTensor.shape()[1]
+            inputWidth = inputTensor.shape()[2]
 
+            Log.i(TAG, "Interpreter initialized with input size: $inputWidth x $inputHeight")
         } catch (e: Exception) {
-            Log.e(TAG, "Error during model inference", e)
-            return emptyList()
+            Log.e(TAG, "Failed to initialize interpreter: ${e.message}")
         }
     }
 
-    fun close() {
-        interpreter?.close()
-        gpuDelegate?.close()
+    private fun loadModelFile(context: Context, modelName: String): MappedByteBuffer {
+        val fileDescriptor = context.assets.openFd(modelName)
+        val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
+        val fileChannel = inputStream.channel
+        val startOffset = fileDescriptor.startOffset
+        val declaredLength = fileDescriptor.declaredLength
+        return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
+    }
+
+
+    private fun isGpuSupported(): Boolean {
+        return try {
+            GpuDelegate().close()
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun runSegmentation(bitmap: Bitmap, width: Int, height: Int): List<Contour> {
+        if (interpreter == null) throw IllegalStateException("Interpreter == null")
+        val resizedBitmap = Bitmap.createScaledBitmap(bitmap, width, height, true)
+        val inputImage = TensorImage.fromBitmap(resizedBitmap)
+
+        val outputShape = interpreter?.getOutputTensor(0)?.shape()
+        if (outputShape == null) {
+            Log.e(TAG, "Output tensor shape is null.")
+            return emptyList()
+        }
+
+        val outputBuffer = TensorBuffer.createFixedSize(outputShape, interpreter!!.getOutputTensor(0).dataType())
+        try {
+            interpreter?.run(inputImage.buffer, outputBuffer.buffer)
+        } catch (e: Exception) {
+            Log.e(TAG, "Inference failed: ${e.message}")
+            return emptyList()
+        }
+
+        return processSegmentationOutput(outputBuffer)
+    }
+
+    private fun processSegmentationOutput(buffer: TensorBuffer): List<Contour> {
+        val outputArray = buffer.floatArray
+        if (outputArray.isEmpty()) {
+            Log.w(TAG, "Empty output from model")
+            return emptyList()
+        }
+
+        val contours = mutableListOf<Contour>()
+
+        // TODO: адаптировать под структуру сегментной маски YOLOv8 (зависит от модели)
+        // Пример: если это бинарная маска 1xHxW
+        val maskSize = inputWidth * inputHeight
+        if (outputArray.size < maskSize) {
+            Log.w(TAG, "Output size too small for mask")
+            return emptyList()
+        }
+
+        val threshold = 0.5f
+        val pathPoints = mutableListOf<Pair<Float, Float>>()
+
+        for (y in 0 until inputHeight) {
+            for (x in 0 until inputWidth) {
+                val index = y * inputWidth + x
+                if (outputArray[index] > threshold) {
+                    pathPoints.add(Pair(x.toFloat(), y.toFloat()))
+                }
+            }
+        }
+
+        if (pathPoints.isNotEmpty()) {
+            contours.add(Contour(pathPoints))
+        }
+
+        return contours
     }
 }

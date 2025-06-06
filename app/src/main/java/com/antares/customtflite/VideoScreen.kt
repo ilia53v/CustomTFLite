@@ -1,110 +1,202 @@
 package com.antares.customtflite
 
+import android.app.Activity
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.SurfaceTexture
 import android.net.Uri
+import android.provider.MediaStore
+import android.util.Log
+import android.view.TextureView
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.media3.common.MediaItem
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 /*
 @Composable
-fun VideoScreen(
-    modifier: Modifier = Modifier,
-    videoUri: Uri,
-) {
+fun VideoScreen() {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
 
-    // ExoPlayer instance
-    val player = remember {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(videoUri))
-            prepare()
-            playWhenReady = true
+    val contoursState = remember { mutableStateOf<List<Contour>>(emptyList()) }
+    val isPlaying = remember { mutableStateOf(false) }
+    val volume = remember { mutableFloatStateOf(1f) }
+    val speed = remember { mutableFloatStateOf(1f) }
+
+    val textureViewRef = remember { mutableStateOf<VideoGLTextureView?>(null) }
+    val videoUri = remember { mutableStateOf<Uri?>(null) }
+    val isTextureReady = remember { mutableStateOf(false) }
+
+    val isLoading = remember { mutableStateOf(true) }
+
+    val videoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            isLoading.value = true
+            videoUri.value = it
+            textureViewRef.value?.setVideoUri(it)
         }
     }
 
-    val glView = remember { GLView(context) }
     val segmentor = remember { YoloV8Segmentor(context) }
 
-    val frameExtractor = remember {
-        VideoFrameExtractor(
-            context = context,
-            videoUri = videoUri,
-            segmentor = segmentor,
-        ) { contours ->
-            glView.updateContours(contours)
-        }
-    }
+    // ️ Частота сегментации (например, 5 кадров в секунду)
+    val segmentationFps = 5
+    val segmentationIntervalMs = (1000f / segmentationFps).toLong()
 
-    // Lifecycle observer
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _: LifecycleOwner, event: Lifecycle.Event ->
-            when (event) {
-                Lifecycle.Event.ON_START -> {
-                    player.playWhenReady = true
-                    frameExtractor.start()
+    //  Сегментация, пока доступен TextureView
+    LaunchedEffect(isTextureReady.value) {
+        if (isTextureReady.value) {
+            isLoading.value = false
+            while (isActive) {
+                val textureView = textureViewRef.value ?: continue
+                val bitmap = textureView.captureFrame() ?: continue
+                try {
+                    val contours = segmentor.runSegmentation(bitmap)
+                    contoursState.value = contours
+                } catch (e: Exception) {
+                    Log.e("Segmentation", "runSegmentation error", e)
                 }
-
-                Lifecycle.Event.ON_STOP -> {
-                    player.playWhenReady = false
-                    frameExtractor.stop()
-                }
-
-                Lifecycle.Event.ON_DESTROY -> {
-                    player.release()
-                    frameExtractor.stop()
-                }
-
-                else -> {}
+                delay(segmentationIntervalMs)
             }
         }
-
-        lifecycleOwner.lifecycle.addObserver(observer)
-
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            player.release()
-            frameExtractor.stop()
-        }
     }
 
-    // Compose UI
-    Box(modifier = modifier.fillMaxSize()) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = {
-                FrameLayout(it).apply {
-                    val playerView = PlayerView(it).apply {
-                        useController = false
-                        this.player = player
-                        layoutParams = FrameLayout.LayoutParams(
-                            FrameLayout.LayoutParams.MATCH_PARENT,
-                            FrameLayout.LayoutParams.MATCH_PARENT
+    Column(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier
+            .weight(1f)
+            .fillMaxWidth()) {
+
+            AndroidView(
+                factory = { ctx ->
+                    VideoGLTextureView(ctx).apply {
+                        textureViewRef.value = this
+
+                        viewTreeObserver.addOnGlobalLayoutListener {
+                            if (width > 0 && height > 0 && isAvailable) {
+                                isTextureReady.value = true
+                            }
+                        }
+
+                        videoUri.value?.let { setVideoUri(it) }
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // Canvas: отрисовка контуров
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val strokeColor = Color.Red
+                val strokeWidth = 3f
+                contoursState.value.forEach { contour ->
+                    if (contour.points.isNotEmpty()) {
+                        val path = Path().apply {
+                            moveTo(contour.points[0].first, contour.points[0].second)
+                            contour.points.drop(1).forEach { point ->
+                                lineTo(point.first, point.second)
+                            }
+                            close()
+                        }
+                        drawPath(
+                            path = path,
+                            color = strokeColor,
+                            style = Stroke(
+                                width = strokeWidth,
+                                cap = StrokeCap.Round,
+                                join = StrokeJoin.Round
+                            )
                         )
                     }
-                    addView(playerView)
-                    addView(glView)
                 }
             }
-        )
+
+            // Индикатор загрузки
+            if (isLoading.value) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.3f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = Color.White)
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            Button(onClick = { videoPickerLauncher.launch("video/*") }) {
+                Text("Выбрать видео")
+            }
+
+            Button(onClick = {
+                val view = textureViewRef.value
+                if (view != null) {
+                    if (isPlaying.value) {
+                        view.pause()
+                    } else {
+                        view.play()
+                    }
+                    isPlaying.value = !isPlaying.value
+                }
+            }) {
+                Text(if (isPlaying.value) "Пауза" else "Воспроизвести")
+            }
+        }
+
+        Row(modifier = Modifier.padding(8.dp)) {
+            Text("Громкость", modifier = Modifier.width(80.dp))
+            Slider(
+                value = volume.floatValue,
+                onValueChange = {
+                    volume.floatValue = it
+                    textureViewRef.value?.setVolume(it)
+                },
+                valueRange = 0f..1f
+            )
+        }
+
+        Row(modifier = Modifier.padding(8.dp)) {
+            Text("Скорость", modifier = Modifier.width(80.dp))
+            Slider(
+                value = speed.floatValue,
+                onValueChange = {
+                    speed.floatValue = it
+                    textureViewRef.value?.setPlaybackSpeed(it)
+                },
+                valueRange = 0.25f..2f
+            )
+        }
     }
 }*/
+
+ */
+
