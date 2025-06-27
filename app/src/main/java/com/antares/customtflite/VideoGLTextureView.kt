@@ -45,6 +45,7 @@ class VideoGLTextureView @JvmOverloads constructor(
                 setSurface(Surface(surfaceTexture))
                 setOnPreparedListener {
                     isPrepared = true
+                    Log.d("VideoGLTextureView", "MediaPlayer готов, запускаем")
                     start()
                 }
             }
