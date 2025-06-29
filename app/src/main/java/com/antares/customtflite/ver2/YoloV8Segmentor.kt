@@ -14,7 +14,7 @@ import java.nio.channels.FileChannel
 class YoloV8Segmentor(private val context: Context) {
 
     private val interpreter: Interpreter by lazy {
-        Interpreter(loadModelFile("yolov8n-seg.tflite"))
+        Interpreter(loadModelFile("best_float32.tflite"))
     }
 
     private fun loadModelFile(modelName: String): ByteBuffer {

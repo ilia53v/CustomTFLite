@@ -19,6 +19,7 @@ class DetectionGLTextureView(context: Context) : TextureView(context), TextureVi
     private var aPosition = 0
     private var uColor = 0
 
+
     init {
         surfaceTextureListener = this
         isOpaque = false
@@ -67,7 +68,7 @@ class DetectionGLTextureView(context: Context) : TextureView(context), TextureVi
                 val buffer = ByteBuffer.allocateDirect(vertices.size * 4)
                     .order(ByteOrder.nativeOrder()).asFloatBuffer()
                 buffer.put(vertices).position(0)
-
+                GLES20.glLineWidth(2.0f)
                 GLES20.glEnableVertexAttribArray(aPosition)
                 GLES20.glVertexAttribPointer(aPosition, 2, GLES20.GL_FLOAT, false, 0, buffer)
                 GLES20.glUniform4f(uColor, 1f, 0f, 0f, 1f)

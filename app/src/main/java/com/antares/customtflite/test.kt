@@ -14,6 +14,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -39,6 +41,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import com.antares.customtflite.ver2.DetectionGLTextureView
+import com.antares.customtflite.ver2.VideoPlayerControlScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,6 +57,8 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
 
     var videoUri by remember { mutableStateOf<Uri?>(null) }
     var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
+    val videoViewRef = remember { mutableStateOf<VideoGLTextureView?>(null) }
+
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -71,17 +76,6 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
             Text("Выбрать видео из галереи")
         }
 
-        Button(onClick = {
-            playbackSpeed = when (playbackSpeed) {
-                0.5f -> 1.0f
-                1.0f -> 1.5f
-                1.5f -> 2.0f
-                else -> 0.5f
-            }
-        }) {
-            Text("Скорость x$playbackSpeed")
-        }
-
         videoUri?.let { uri ->
             AndroidView(factory = {
                 FrameLayout(it).apply {
@@ -91,7 +85,8 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                             FrameLayout.LayoutParams.MATCH_PARENT
                         )
                         setVideoUri(uri)
-                        setPlaybackSpeed(playbackSpeed)
+                        setPlaybackSpeed(1.0f)
+                        videoViewRef.value = this
                     }
 
                     val glOverlay = DetectionGLTextureView(it).apply {
@@ -109,7 +104,15 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                     addView(videoView)
                     addView(glOverlay)
                 }
-            }, modifier = Modifier.fillMaxSize())
+            }, modifier = Modifier
+                .fillMaxWidth()
+                .height(300.dp)
+            )
         }
+        // Управление воспроизведением
+        VideoPlayerControlScreen(
+            videoUri = videoUri,
+            videoViewRef = videoViewRef
+        )
     }
 }
