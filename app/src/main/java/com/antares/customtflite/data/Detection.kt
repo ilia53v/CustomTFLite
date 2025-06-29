@@ -1,4 +1,11 @@
 package com.antares.customtflite.data
 
-data class Detection(val x: Float, val y: Float, val w: Float, val h: Float, val score: Float)
 
+// Класс для хранения детекций
+data class Detection(
+    val x: Float, // центр по X (0..1)
+    val y: Float, // центр по Y (0..1)
+    val w: Float, // ширина (0..1)
+    val h: Float, // высота (0..1)
+    val score: Float
+)

@@ -3,8 +3,7 @@ package com.antares.customtflite.ver2
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.PointF
-import com.antares.customtflite.check_model.createOutputBuffer
-import com.antares.customtflite.check_model.preprocessBitmap
+import com.antares.customtflite.data.Detection
 import org.tensorflow.lite.Interpreter
 import java.io.FileInputStream
 import java.nio.ByteBuffer
@@ -58,7 +57,30 @@ class YoloV8Segmentor(private val context: Context) {
         return masks.mapNotNull { mask -> MaskUtils.extractContourFromMask(mask) }
     }
 
+    fun preprocessBitmap(bitmap: Bitmap): ByteBuffer {
+        val inputSize = 640
+        val resized = Bitmap.createScaledBitmap(bitmap, inputSize, inputSize, true)
+        val inputBuffer = ByteBuffer.allocateDirect(1 * inputSize * inputSize * 3 * 4)
+        inputBuffer.order(ByteOrder.nativeOrder())
 
+        val pixels = IntArray(inputSize * inputSize)
+        resized.getPixels(pixels, 0, inputSize, 0, 0, inputSize, inputSize)
+
+        for (pixel in pixels) {
+            val r = ((pixel shr 16) and 0xFF) / 255.0f
+            val g = ((pixel shr 8) and 0xFF) / 255.0f
+            val b = (pixel and 0xFF) / 255.0f
+            inputBuffer.putFloat(r)
+            inputBuffer.putFloat(g)
+            inputBuffer.putFloat(b)
+        }
+
+        return inputBuffer
+    }
+
+    fun createOutputBuffer(): Array<Array<FloatArray>> {
+        return Array(1) { Array(5) { FloatArray(8400) } } // [1, 5, 8400]
+    }
 
     fun runInferenceOnBitmap(bitmap: Bitmap): List<Detection> {
         val inputBuffer = preprocessBitmap(bitmap)
@@ -106,12 +128,3 @@ class YoloV8Segmentor(private val context: Context) {
         return detections
     }
 }
-
-// Класс для хранения детекций
-data class Detection(
-    val x: Float, // центр по X (0..1)
-    val y: Float, // центр по Y (0..1)
-    val w: Float, // ширина (0..1)
-    val h: Float, // высота (0..1)
-    val score: Float
-)
