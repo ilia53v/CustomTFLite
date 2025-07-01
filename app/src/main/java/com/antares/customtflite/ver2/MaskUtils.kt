@@ -4,7 +4,11 @@ import android.graphics.PointF
 import kotlin.math.exp
 
 object MaskUtils {
-    fun computeMasks(maskData: Array<FloatArray>, protos: Array<FloatArray>): List<Array<BooleanArray>> {
+
+    fun computeMasks(
+        maskData: Array<FloatArray>,                        // [8400][32]
+        protos: Array<Array<FloatArray>>                   // [32][160][160]
+    ): List<Array<BooleanArray>> {
         val maskCount = maskData.size
         val maskSize = 160
         val masks = mutableListOf<Array<BooleanArray>>()
@@ -16,7 +20,7 @@ object MaskUtils {
                 for (x in 0 until maskSize) {
                     var sum = 0f
                     for (j in coeffs.indices) {
-                        sum += coeffs[j] * protos[j][y * maskSize + x]
+                        sum += coeffs[j] * protos[j][y][x]
                     }
                     mask[y][x] = sigmoid(sum) > 0.5f
                 }

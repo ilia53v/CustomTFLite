@@ -1,11 +1,14 @@
 package com.antares.customtflite.data
 
+import android.graphics.PointF
+
 
 // Класс для хранения детекций
 data class Detection(
-    val x: Float, // центр по X (0..1)
-    val y: Float, // центр по Y (0..1)
-    val w: Float, // ширина (0..1)
-    val h: Float, // высота (0..1)
-    val score: Float
+    val x: Float = 0f,
+    val y: Float = 0f,
+    val w: Float = 0f,
+    val h: Float = 0f,
+    val score: Float = 0f,
+    val contourPoints: List<PointF> = emptyList()
 )

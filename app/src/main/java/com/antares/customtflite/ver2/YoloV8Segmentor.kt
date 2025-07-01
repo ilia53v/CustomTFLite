@@ -3,6 +3,7 @@ package com.antares.customtflite.ver2
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.PointF
+import android.util.Log
 import com.antares.customtflite.data.Detection
 import org.tensorflow.lite.Interpreter
 import java.io.FileInputStream
@@ -12,8 +13,15 @@ import java.nio.channels.FileChannel
 
 class YoloV8Segmentor(private val context: Context) {
 
-    private val interpreter: Interpreter by lazy {
-        Interpreter(loadModelFile("best_float32.tflite"))
+    private val inputSize = 640
+    private val interpreter: Interpreter
+
+    init {
+        val options = Interpreter.Options().apply {
+            setUseXNNPACK(false)  // отключено для стабильности
+            setNumThreads(1)      // ограничиваем до 1 потока для предотвращения гонок
+        }
+        interpreter = Interpreter(loadModelFile("best_segment_float32.tflite"), options)
     }
 
     private fun loadModelFile(modelName: String): ByteBuffer {
@@ -25,40 +33,7 @@ class YoloV8Segmentor(private val context: Context) {
         return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
     }
 
-    private fun preprocess(bitmap: Bitmap): ByteBuffer {
-        val resized = Bitmap.createScaledBitmap(bitmap, 640, 640, true)
-        val buffer = ByteBuffer.allocateDirect(1 * 640 * 640 * 3 * 4)
-        buffer.order(ByteOrder.nativeOrder())
-        val pixels = IntArray(640 * 640)
-        resized.getPixels(pixels, 0, 640, 0, 0, 640, 640)
-        for (pixel in pixels) {
-            buffer.putFloat(((pixel shr 16) and 0xFF) / 255f)
-            buffer.putFloat(((pixel shr 8) and 0xFF) / 255f)
-            buffer.putFloat((pixel and 0xFF) / 255f)
-        }
-        return buffer
-    }
-
-    fun runInference(bitmap: Bitmap): List<List<PointF>> {
-        val input = preprocess(bitmap)
-
-        // Выход YOLOv8-seg:
-        val output0 = Array(1) { Array(8400) { FloatArray(32) } } // bboxes + mask coeffs
-        val output1 = Array(1) { Array(32) { FloatArray(160 * 160) } } // protos
-
-        val outputs = mapOf(
-            0 to output0,
-            1 to output1
-        )
-
-        interpreter.runForMultipleInputsOutputs(arrayOf(input), outputs)
-
-        val masks = MaskUtils.computeMasks(output0[0], output1[0])
-        return masks.mapNotNull { mask -> MaskUtils.extractContourFromMask(mask) }
-    }
-
-    fun preprocessBitmap(bitmap: Bitmap): ByteBuffer {
-        val inputSize = 640
+    private fun preprocessBitmap(bitmap: Bitmap): ByteBuffer {
         val resized = Bitmap.createScaledBitmap(bitmap, inputSize, inputSize, true)
         val inputBuffer = ByteBuffer.allocateDirect(1 * inputSize * inputSize * 3 * 4)
         inputBuffer.order(ByteOrder.nativeOrder())
@@ -75,56 +50,46 @@ class YoloV8Segmentor(private val context: Context) {
             inputBuffer.putFloat(b)
         }
 
+        inputBuffer.rewind()
         return inputBuffer
     }
 
-    fun createOutputBuffer(): Array<Array<FloatArray>> {
-        return Array(1) { Array(5) { FloatArray(8400) } } // [1, 5, 8400]
-    }
+    private val interpreterLock = Any()
 
-    fun runInferenceOnBitmap(bitmap: Bitmap): List<Detection> {
+    /**
+     * Запускает инференс и возвращает список контуров
+     */
+    fun runInference(bitmap: Bitmap): List<List<PointF>> {
         val inputBuffer = preprocessBitmap(bitmap)
-        val outputBuffer = createOutputBuffer()
-        interpreter.run(inputBuffer, outputBuffer)
-        return parseOutput(outputBuffer)
-    }
+        val output0 = Array(1) { Array(38) { FloatArray(8400) } }
+        val output1 = Array(1) { Array(160) { Array(160) { FloatArray(32) } } }
+        val outputs = mapOf(0 to output0, 1 to output1)
 
-    fun runContoursOnBitmap(bitmap: Bitmap): List<List<PointF>> {
-        // Для упрощения пример возвращает квадратные контуры по bbox
-        val detections = runInferenceOnBitmap(bitmap)
-
-        val contours = mutableListOf<List<PointF>>()
-        for (det in detections) {
-            val x = det.x
-            val y = det.y
-            val w = det.w
-            val h = det.h
-
-            // Пример контуров — прямоугольник (нормализованные координаты 0..1)
-            val contour = listOf(
-                PointF(x - w / 2f, y - h / 2f), // левый верхний
-                PointF(x + w / 2f, y - h / 2f), // правый верхний
-                PointF(x + w / 2f, y + h / 2f), // правый нижний
-                PointF(x - w / 2f, y + h / 2f)  // левый нижний
-            )
-            contours.add(contour)
+        synchronized(interpreterLock) {
+            interpreter.runForMultipleInputsOutputs(arrayOf(inputBuffer), outputs)
         }
-        return contours
-    }
 
-    private fun parseOutput(output: Array<Array<FloatArray>>, threshold: Float = 0.25f): List<Detection> {
-        val detections = mutableListOf<Detection>()
-        val channels = output[0] // shape: [5][8400]
+        // Извлекаем маски
+        val maskCoeffs = Array(8400) { FloatArray(32) }
         for (i in 0 until 8400) {
-            val x = channels[0][i]
-            val y = channels[1][i]
-            val w = channels[2][i]
-            val h = channels[3][i]
-            val score = channels[4][i]
-            if (score > threshold) {
-                detections.add(Detection(x, y, w, h, score))
+            for (j in 0 until 32) {
+                maskCoeffs[i][j] = output0[0][j + 6][i]  // сдвиг на 6 — из документации модели
             }
         }
-        return detections
+
+        // Преобразуем прототипы: [32][160][160]
+        val protos = Array(32) { i ->
+            Array(160) { y ->
+                FloatArray(160) { x ->
+                    output1[0][y][x][i]
+                }
+            }
+        }
+
+        // Вычисляем маски (логика в твоем MaskUtils)
+        val masks = MaskUtils.computeMasks(maskCoeffs, protos)
+
+        // Преобразуем маски в контуры (списки точек с нормализованными координатами)
+        return masks.mapNotNull { MaskUtils.extractContourFromMask(it) }
     }
 }

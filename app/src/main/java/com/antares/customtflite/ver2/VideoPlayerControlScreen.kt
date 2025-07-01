@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
+/*
 @Composable
 fun VideoPlayerControlScreen(
     videoUri: Uri?,
@@ -52,7 +53,7 @@ fun VideoPlayerControlScreen(
                 if (isPlaying) {
                     videoViewRef.value?.pause()
                 } else {
-                    videoViewRef.value?.play()
+                    videoViewRef.value?.start()
                 }
                 isPlaying = !isPlaying
             }) {
@@ -66,7 +67,7 @@ fun VideoPlayerControlScreen(
                     1.5f -> 2.0f
                     else -> 0.5f
                 }
-                videoViewRef.value?.setPlaybackSpeed(speed)
+                videoViewRef.value?.setSpeed(speed)
             }) {
                 Text("Скорость x$speed")
             }
@@ -93,3 +94,4 @@ fun VideoPlayerControlScreen(
         )
     }
 }
+*/

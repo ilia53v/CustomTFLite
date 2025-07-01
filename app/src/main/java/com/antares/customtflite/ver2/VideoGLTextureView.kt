@@ -1,145 +1,80 @@
 package com.antares.customtflite.ver2
 
 import android.content.Context
+import android.content.res.AssetFileDescriptor
 import android.graphics.Bitmap
 import android.graphics.SurfaceTexture
 import android.media.MediaPlayer
+import android.media.PlaybackParams
 import android.net.Uri
 import android.os.Build
 import android.util.AttributeSet
 import android.util.Log
 import android.view.Surface
 import android.view.TextureView
+import androidx.annotation.RequiresApi
 
 class VideoGLTextureView @JvmOverloads constructor(
-    context: Context, attrs: AttributeSet? = null
+    context: Context,
+    attrs: AttributeSet? = null
 ) : TextureView(context, attrs), TextureView.SurfaceTextureListener {
 
     private var mediaPlayer: MediaPlayer? = null
+    private var surface: Surface? = null
     private var isPrepared = false
-    private var isSurfaceAvailable = false
-    var onSurfaceReady: (() -> Unit)? = null
-    private var videoUri: Uri? = null
-
-    // Callback для передачи захваченного кадра
-    var onFrameCaptured: ((Bitmap) -> Unit)? = null
 
     init {
         surfaceTextureListener = this
     }
 
     fun setVideoUri(uri: Uri) {
-        Log.d("VideoGLTextureView", "setVideoUri: $uri")
-        videoUri = uri
-        if (isSurfaceAvailable) {
-            prepareMediaPlayer()
-        } else {
-            Log.d("VideoGLTextureView", "Surface not yet available")
+        surfaceTexture?.let {
+            initMediaPlayer(uri, it)
         }
     }
 
-    fun play() {
-        Log.d("VideoGLTextureView", "play() called")
-        mediaPlayer?.takeIf { isPrepared }?.start()
-    }
-
-    fun pause() {
-        Log.d("VideoGLTextureView", "pause() called")
-        mediaPlayer?.pause()
-    }
-
-    fun setVolume(v: Float) {
-        Log.d("VideoGLTextureView", "setVolume: $v")
-        mediaPlayer?.setVolume(v, v)
-    }
-
-    fun seekTo(positionMs: Int) {
-        mediaPlayer?.seekTo(positionMs)
-    }
-
-    fun getDuration(): Int = mediaPlayer?.duration ?: 0
-
-    fun getCurrentPosition(): Int = mediaPlayer?.currentPosition ?: 0
-
-    fun setPlaybackSpeed(speed: Float) {
-        Log.d("VideoGLTextureView", "setPlaybackSpeed: $speed")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            mediaPlayer?.playbackParams = mediaPlayer?.playbackParams?.setSpeed(speed)!!
-        }
-    }
-
-    private fun prepareMediaPlayer() {
-        if (videoUri == null || !isSurfaceAvailable) {
-            Log.w("VideoGLTextureView", "Cannot prepare MediaPlayer — surfaceAvailable=$isSurfaceAvailable, uri=$videoUri")
-            return
-        }
-
-        Log.d("VideoGLTextureView", "Preparing MediaPlayer with URI: $videoUri")
-
+    private fun initMediaPlayer(uri: Uri, surfaceTexture: SurfaceTexture) {
         mediaPlayer?.release()
-        mediaPlayer = MediaPlayer().apply {
-            setSurface(Surface(surfaceTexture))
-            setOnPreparedListener {
-                isPrepared = true
-                Log.d("VideoGLTextureView", "MediaPlayer prepared, starting playback")
-                start()
-            }
-            setOnErrorListener { _, what, extra ->
-                Log.e("VideoGLTextureView", "MediaPlayer error what=$what extra=$extra")
-                true
-            }
-            try {
-                setDataSource(context, videoUri!!)
+        mediaPlayer = MediaPlayer()
+        surface = Surface(surfaceTexture)
+
+        try {
+            mediaPlayer?.apply {
+                setSurface(surface)
+                setDataSource(context, uri)
+                setOnPreparedListener {
+                    isPrepared = true
+                    start()
+                }
+                setOnErrorListener { _, what, extra ->
+                    Log.e("VideoGLTextureView", "MediaPlayer error: $what, $extra")
+                    true
+                }
                 prepareAsync()
-                Log.d("VideoGLTextureView", "prepareAsync() called")
-            } catch (e: Exception) {
-                Log.e("VideoGLSurfaceView", "Failed to setDataSource", e)
             }
+        } catch (e: Exception) {
+            Log.e("VideoGLTextureView", "MediaPlayer init error", e)
         }
     }
 
-    fun captureFrame(): Bitmap? {
-        return if (isAvailable) {
-            try {
-                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                val result = getBitmap(bitmap)
-                Log.d("captureFrame", "Bitmap size: ${bitmap.width}x${bitmap.height}, getBitmap returned $result")
-                bitmap
-            } catch (e: Exception) {
-                Log.e("VideoGLTextureView", "captureFrame error: ${e.message}")
-                null
-            }
-        } else {
-            Log.w("VideoGLTextureView", "captureFrame called but TextureView not available")
-            null
+    fun start() = mediaPlayer?.start()
+    fun pause() = mediaPlayer?.pause()
+    fun getCurrentPosition(): Int = mediaPlayer?.currentPosition ?: 0
+    fun getDuration(): Int = mediaPlayer?.duration ?: 0
+    fun captureFrame(): Bitmap? = bitmap
+    fun seekTo(positionMs: Int) {
+        if (isPrepared) {
+            mediaPlayer?.seekTo(positionMs)
         }
     }
 
-    override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-        Log.d("VideoGLTextureView", "SurfaceTexture available: $width x $height")
-        isSurfaceAvailable = true
-        prepareMediaPlayer()
-        onSurfaceReady?.invoke()
-    }
-
-    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
-        Log.d("VideoGLTextureView", "SurfaceTexture size changed: $width x $height")
-    }
-
+    override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {}
+    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-        Log.d("VideoGLTextureView", "SurfaceTexture destroyed")
-        isSurfaceAvailable = false
         mediaPlayer?.release()
         mediaPlayer = null
-        isPrepared = false
+        this.surface?.release()
         return true
     }
-
-    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {
-        // Автоматический вызов captureFrame после отрисовки кадра
-        Log.d("VideoGLTextureView", "SurfaceTexture updated")
-        captureFrame()?.let { bitmap ->
-            onFrameCaptured?.invoke(bitmap)
-        }
-    }
+    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
 }
