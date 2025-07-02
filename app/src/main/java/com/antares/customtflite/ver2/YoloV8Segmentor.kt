@@ -89,13 +89,13 @@ class YoloV8Segmentor(private val context: Context) {
         }
 
         val filteredMaskCoeffs = mutableListOf<FloatArray>()
-        val confidenceThreshold = 0.1f
+        val confidenceThreshold = 0.2f
 
         if (isOutput0Shape8400x38) {
             val out0 = output0 as Array<Array<FloatArray>>
             for (i in 0 until 8400) {
-                val rawObj = out0[0][4][i]
-                val rawCls = out0[0][5][i]
+                val rawObj = out0[0][i][4]
+                val rawCls = out0[0][i][5]
                 val obj = sigmoid(rawObj)
                 val cls = sigmoid(rawCls)
                 val conf = obj * cls

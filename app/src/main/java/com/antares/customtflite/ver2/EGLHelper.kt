@@ -15,6 +15,7 @@ import java.nio.ByteOrder
 private var program: Int = 0
 private var positionHandle: Int = 0
 
+
 class EGLHelper {
 
     private var display: EGLDisplay? = null
@@ -193,3 +194,5 @@ class EGLHelper {
         eglSurface = null
     }
 }
+
+
