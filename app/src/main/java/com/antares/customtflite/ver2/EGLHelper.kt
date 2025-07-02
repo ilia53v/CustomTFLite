@@ -23,10 +23,13 @@ class EGLHelper {
 
     private var programLine: Int = 0
     private var programPoint: Int = 0
+    private var programFill: Int = 0
     private var positionHandleLine: Int = 0
     private var positionHandlePoint: Int = 0
+    private var positionHandleFill: Int = 0
     private var colorHandleLine: Int = 0
     private var colorHandlePoint: Int = 0
+    private var colorHandleFill: Int = 0
 
     fun setContours(contours: List<List<PointF>>) {
         Log.d("EGLHelper", "setContours called with ${contours.size} contours")
@@ -93,15 +96,7 @@ class EGLHelper {
             }
         """.trimIndent()
 
-        val fragmentShaderCodeLine = """
-            precision mediump float;
-            uniform vec4 u_Color;
-            void main() {
-                gl_FragColor = u_Color;
-            }
-        """.trimIndent()
-
-        val fragmentShaderCodePoint = """
+        val fragmentShaderCode = """
             precision mediump float;
             uniform vec4 u_Color;
             void main() {
@@ -110,19 +105,25 @@ class EGLHelper {
         """.trimIndent()
 
         val vertexShader = loadShader(GLES20.GL_VERTEX_SHADER, vertexShaderCode)
-        val fragmentShaderLine = loadShader(GLES20.GL_FRAGMENT_SHADER, fragmentShaderCodeLine)
-        val fragmentShaderPoint = loadShader(GLES20.GL_FRAGMENT_SHADER, fragmentShaderCodePoint)
+        val fragmentShader = loadShader(GLES20.GL_FRAGMENT_SHADER, fragmentShaderCode)
 
         programLine = GLES20.glCreateProgram().also {
             GLES20.glAttachShader(it, vertexShader)
-            GLES20.glAttachShader(it, fragmentShaderLine)
+            GLES20.glAttachShader(it, fragmentShader)
             GLES20.glLinkProgram(it)
             checkProgramLink(it)
         }
 
         programPoint = GLES20.glCreateProgram().also {
             GLES20.glAttachShader(it, vertexShader)
-            GLES20.glAttachShader(it, fragmentShaderPoint)
+            GLES20.glAttachShader(it, fragmentShader)
+            GLES20.glLinkProgram(it)
+            checkProgramLink(it)
+        }
+
+        programFill = GLES20.glCreateProgram().also {
+            GLES20.glAttachShader(it, vertexShader)
+            GLES20.glAttachShader(it, fragmentShader)
             GLES20.glLinkProgram(it)
             checkProgramLink(it)
         }
@@ -132,6 +133,9 @@ class EGLHelper {
 
         positionHandlePoint = GLES20.glGetAttribLocation(programPoint, "a_Position")
         colorHandlePoint = GLES20.glGetUniformLocation(programPoint, "u_Color")
+
+        positionHandleFill = GLES20.glGetAttribLocation(programFill, "a_Position")
+        colorHandleFill = GLES20.glGetUniformLocation(programFill, "u_Color")
 
         Log.d("EGLHelper", "EGL initialized successfully")
     }
@@ -157,17 +161,20 @@ class EGLHelper {
         }
 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
-
-        // Отрисовка контуров (синим цветом)
-        GLES20.glUseProgram(programLine)
         GLES20.glEnable(GLES20.GL_BLEND)
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
-        GLES20.glLineWidth(4f)
 
-        GLES20.glUniform4f(colorHandleLine, 0f, 0f, 1f, 1f) // синий цвет
+        val baseColors = listOf(
+            floatArrayOf(1f, 0f, 0f), // red
+            floatArrayOf(0f, 1f, 0f), // green
+            floatArrayOf(0f, 0f, 1f), // blue
+            floatArrayOf(1f, 1f, 0f), // yellow
+            floatArrayOf(1f, 0f, 1f), // magenta
+            floatArrayOf(0f, 1f, 1f)  // cyan
+        )
 
-        for (contour in contours) {
-            if (contour.size < 2) continue
+        contours.forEachIndexed { index, contour ->
+            if (contour.size < 3) return@forEachIndexed
 
             val vertexData = FloatArray(contour.size * 2)
             for ((i, point) in contour.withIndex()) {
@@ -181,17 +188,29 @@ class EGLHelper {
                 .put(vertexData)
             buffer.position(0)
 
+            val color = baseColors[index % baseColors.size]
+
+            // Fill
+            GLES20.glUseProgram(programFill)
+            GLES20.glUniform4f(colorHandleFill, color[0], color[1], color[2], 0.3f)
+            GLES20.glEnableVertexAttribArray(positionHandleFill)
+            GLES20.glVertexAttribPointer(positionHandleFill, 2, GLES20.GL_FLOAT, false, 0, buffer)
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_FAN, 0, contour.size)
+            GLES20.glDisableVertexAttribArray(positionHandleFill)
+
+            // Outline
+            GLES20.glUseProgram(programLine)
+            GLES20.glUniform4f(colorHandleLine, color[0], color[1], color[2], 1f)
             GLES20.glEnableVertexAttribArray(positionHandleLine)
             GLES20.glVertexAttribPointer(positionHandleLine, 2, GLES20.GL_FLOAT, false, 0, buffer)
-            GLES20.glDrawArrays(GLES20.GL_LINE_STRIP, 0, contour.size)
+            GLES20.glDrawArrays(GLES20.GL_LINE_LOOP, 0, contour.size)
             GLES20.glDisableVertexAttribArray(positionHandleLine)
         }
 
-        // Отрисовка точек пересечения (красным цветом)
+        // Intersections
         if (intersections.isNotEmpty()) {
             GLES20.glUseProgram(programPoint)
-
-            GLES20.glUniform4f(colorHandlePoint, 1f, 0f, 0f, 1f) // красный цвет
+            GLES20.glUniform4f(colorHandlePoint, 1f, 0f, 0f, 1f)
 
             val vertexData = FloatArray(intersections.size * 2)
             for ((i, point) in intersections.withIndex()) {
