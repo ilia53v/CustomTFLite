@@ -10,6 +10,7 @@ import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
+import kotlin.math.exp
 
 
 class YoloV8Segmentor(private val context: Context) {
@@ -19,8 +20,8 @@ class YoloV8Segmentor(private val context: Context) {
 
     init {
         val options = Interpreter.Options().apply {
-            setUseXNNPACK(false)  // отключено для стабильности
-            setNumThreads(1)      // ограничиваем до 1 потока для предотвращения гонок
+            setUseXNNPACK(false)
+            setNumThreads(1)
         }
         interpreter = Interpreter(loadModelFile("best_segment_float32.tflite"), options)
     }
@@ -57,14 +58,29 @@ class YoloV8Segmentor(private val context: Context) {
 
     private val interpreterLock = Any()
 
-
-/**
-     * Запускает инференс и возвращает список контуров
-     */
-
     fun runInference(bitmap: Bitmap): List<List<PointF>> {
         val inputBuffer = preprocessBitmap(bitmap)
-        val output0 = Array(1) { Array(38) { FloatArray(8400) } }
+
+        Log.d("YoloV8Segmentor", "runInference started")
+
+        // Проверка формы выходного тензора
+        val output0Shape = interpreter.getOutputTensor(0).shape()
+        val output1Shape = interpreter.getOutputTensor(1).shape()
+        Log.d("YoloV8Segmentor", "Output0 shape = ${output0Shape.joinToString()}")
+        Log.d("YoloV8Segmentor", "Output1 shape = ${output1Shape.joinToString()}")
+
+        // Инициализация выходов на основе формы
+        val output0: Any
+        val isOutput0Shape8400x38 = output0Shape contentEquals intArrayOf(1, 8400, 38)
+
+        if (isOutput0Shape8400x38) {
+            output0 = Array(1) { Array(8400) { FloatArray(38) } }
+        } else if (output0Shape contentEquals intArrayOf(1, 38, 8400)) {
+            output0 = Array(1) { Array(38) { FloatArray(8400) } }
+        } else {
+            throw IllegalStateException("Unsupported output0 shape: ${output0Shape.joinToString()}")
+        }
+
         val output1 = Array(1) { Array(160) { Array(160) { FloatArray(32) } } }
         val outputs = mapOf(0 to output0, 1 to output1)
 
@@ -72,15 +88,41 @@ class YoloV8Segmentor(private val context: Context) {
             interpreter.runForMultipleInputsOutputs(arrayOf(inputBuffer), outputs)
         }
 
-        // Извлекаем маски
-        val maskCoeffs = Array(8400) { FloatArray(32) }
-        for (i in 0 until 8400) {
-            for (j in 0 until 32) {
-                maskCoeffs[i][j] = output0[0][j + 6][i]  // сдвиг на 6 — из документации модели
+        val filteredMaskCoeffs = mutableListOf<FloatArray>()
+        val confidenceThreshold = 0.1f
+
+        if (isOutput0Shape8400x38) {
+            val out0 = output0 as Array<Array<FloatArray>>
+            for (i in 0 until 8400) {
+                val rawObj = out0[0][4][i]
+                val rawCls = out0[0][5][i]
+                val obj = sigmoid(rawObj)
+                val cls = sigmoid(rawCls)
+                val conf = obj * cls
+                Log.d("YoloV8Segmentor", "Index $i: raw_obj=$rawObj, raw_cls=$rawCls, obj=$obj, cls=$cls, conf=$conf")
+                if (conf > confidenceThreshold) {
+                    val coeffs = FloatArray(32) { j -> out0[0][i][6 + j] }
+                    filteredMaskCoeffs.add(coeffs)
+                }
+            }
+        } else {
+            val out0 = output0 as Array<Array<FloatArray>>
+            for (i in 0 until 8400) {
+                val rawObj = out0[0][4][i]
+                val rawCls = out0[0][5][i]
+                val obj = sigmoid(rawObj)
+                val cls = sigmoid(rawCls)
+                val conf = obj * cls
+                Log.d("YoloV8Segmentor", "Index $i: raw_obj=$rawObj, raw_cls=$rawCls, obj=$obj, cls=$cls, conf=$conf")
+                if (conf > confidenceThreshold) {
+                    val coeffs = FloatArray(32) { j -> out0[0][j + 6][i] }
+                    filteredMaskCoeffs.add(coeffs)
+                }
             }
         }
 
-        // Преобразуем прототипы: [32][160][160]
+        Log.d("YoloV8Segmentor", "Filtered mask count: ${filteredMaskCoeffs.size}")
+
         val protos = Array(32) { i ->
             Array(160) { y ->
                 FloatArray(160) { x ->
@@ -89,15 +131,19 @@ class YoloV8Segmentor(private val context: Context) {
             }
         }
 
-        // Вычисляем маски (логика в твоем MaskUtils)
-        Log.d("YoloV8Segmentor", "Calling computeMasks...")
-        Log.d("YoloV8Segmentor", "maskCoeffs.size=${maskCoeffs.size}, protos.size=${protos.size}")
-        val masks = MaskUtils.computeMasks(maskCoeffs, protos)
+        val masks = MaskUtils.computeMasks(filteredMaskCoeffs.toTypedArray(), protos)
         Log.d("YoloV8Segmentor", "computeMasks returned ${masks.size} masks")
 
-        // Преобразуем маски в контуры (списки точек с нормализованными координатами)
-        return masks.mapNotNull { MaskUtils.extractContourFromMask(it) }
-    }
-}
+        val contours = masks.mapNotNull { MaskUtils.extractContourFromMask(it) }
+        Log.d("YoloV8Segmentor", "Extracted ${contours.size} contours from masks")
 
+        if (contours.isNotEmpty()) {
+            Log.d("YoloV8Segmentor", "First contour size: ${contours[0].size}, first point: ${contours[0].firstOrNull()}")
+        }
+
+        return contours
+    }
+
+    private fun sigmoid(x: Float): Float = (1f / (1f + exp(-x)))
+}
 
