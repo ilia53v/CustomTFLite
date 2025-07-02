@@ -33,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,7 +45,9 @@ import com.antares.customtflite.ver2.YoloV8Segmentor
 import com.antares.customtflite.ver2.DetectionGLTextureView
 import com.antares.customtflite.ver2.VideoGLTextureView
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -91,6 +94,8 @@ fun VideoInferenceWithOverlayScreen(
     val videoViewRef = remember { mutableStateOf<VideoGLTextureView?>(null) }
     // ref для управления DetectionGLTextureView
     val detectionViewRef = remember { mutableStateOf<DetectionGLTextureView?>(null) }
+    var inferenceJob by remember { mutableStateOf<Job?>(null) }
+    val scope = rememberCoroutineScope()
 
     // Состояния управления воспроизведением
     var isPlaying by remember { mutableStateOf(false) }
@@ -101,34 +106,33 @@ fun VideoInferenceWithOverlayScreen(
         videoViewRef.value?.setVideoUri(videoUri)
         videoViewRef.value?.start()
         isPlaying = true
+    }
 
-        while (true) {
+    // Управление циклом инференса вручную
+    fun startInferenceLoop() {
+        inferenceJob?.cancel()
+        inferenceJob = scope.launch {
+            while (isPlaying) {
+                val bitmap = videoViewRef.value?.captureFrame() ?: continue
+                val detections = withContext(Dispatchers.Default) {
+                    yoloSegmentor.runInference(bitmap)
+                }
+                val contours = detections.mapNotNull { it.takeIf { it.isNotEmpty() } }
+                Log.d("VideoInferenceWithOverlay", "Contours count to set: ${contours.size}")
+                detectionViewRef.value?.setContours(contours)
+                delay(500L)
+            }
+        }
+    }
+
+    // Обновление позиции видео в фоне
+    LaunchedEffect(isPlaying) {
+        while (isPlaying) {
             delay(200L)
             val pos = videoViewRef.value?.getCurrentPosition() ?: 0
             val dur = videoViewRef.value?.getDuration() ?: 0
             currentPosition = pos.toLong()
             videoDuration = dur.toLong()
-            if (!isPlaying) break
-        }
-    }
-
-    LaunchedEffect(isPlaying) {
-        while (isPlaying) {
-            val bitmap = videoViewRef.value?.captureFrame() ?: continue
-            val detections = withContext(Dispatchers.Default) {
-                yoloSegmentor.runInference(bitmap)
-            }
-
-            val contours = detections.mapNotNull { it.takeIf { it.isNotEmpty() } }
-
-            Log.d("VideoScreen", "Contours count: ${contours.size}")
-            contours.forEachIndexed { index, contour ->
-                Log.d("VideoScreen", "Contour #$index points count: ${contour.size}")
-            }
-
-            detectionViewRef.value?.setContours(contours)
-
-            delay(500L)
         }
     }
 
@@ -175,10 +179,13 @@ fun VideoInferenceWithOverlayScreen(
                 IconButton(onClick = {
                     if (isPlaying) {
                         videoViewRef.value?.pause()
+                        isPlaying = false
+                        inferenceJob?.cancel()
                     } else {
                         videoViewRef.value?.start()
+                        isPlaying = true
+                        startInferenceLoop()
                     }
-                    isPlaying = !isPlaying
                 }) {
                     Icon(
                         imageVector = if (isPlaying) Icons.Default.Close else Icons.Default.PlayArrow,

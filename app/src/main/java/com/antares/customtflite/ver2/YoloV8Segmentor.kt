@@ -11,6 +11,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
 
+
 class YoloV8Segmentor(private val context: Context) {
 
     private val inputSize = 640
@@ -56,9 +57,11 @@ class YoloV8Segmentor(private val context: Context) {
 
     private val interpreterLock = Any()
 
-    /**
+
+/**
      * Запускает инференс и возвращает список контуров
      */
+
     fun runInference(bitmap: Bitmap): List<List<PointF>> {
         val inputBuffer = preprocessBitmap(bitmap)
         val output0 = Array(1) { Array(38) { FloatArray(8400) } }
@@ -87,9 +90,14 @@ class YoloV8Segmentor(private val context: Context) {
         }
 
         // Вычисляем маски (логика в твоем MaskUtils)
+        Log.d("YoloV8Segmentor", "Calling computeMasks...")
+        Log.d("YoloV8Segmentor", "maskCoeffs.size=${maskCoeffs.size}, protos.size=${protos.size}")
         val masks = MaskUtils.computeMasks(maskCoeffs, protos)
+        Log.d("YoloV8Segmentor", "computeMasks returned ${masks.size} masks")
 
         // Преобразуем маски в контуры (списки точек с нормализованными координатами)
         return masks.mapNotNull { MaskUtils.extractContourFromMask(it) }
     }
 }
+
+
