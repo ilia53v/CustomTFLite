@@ -14,6 +14,9 @@ import android.view.Surface
 import android.view.TextureView
 import androidx.annotation.RequiresApi
 
+///////////////////////////////////////////////////////
+/////   класс с методами для работы видеоплеера   /////
+///////////////////////////////////////////////////////
 class VideoGLTextureView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null

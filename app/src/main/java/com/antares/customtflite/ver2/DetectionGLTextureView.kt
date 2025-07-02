@@ -6,6 +6,7 @@ import android.graphics.SurfaceTexture
 import android.util.AttributeSet
 import android.util.Log
 import android.view.TextureView
+import com.antares.customtflite.intersection_point.findAllIntersectionsInContours
 
 class DetectionGLTextureView @JvmOverloads constructor(
     context: Context,
@@ -35,6 +36,8 @@ class DetectionGLTextureView @JvmOverloads constructor(
         eglHelper = EGLHelper()
         eglHelper?.init(surface, width, height)
         eglHelper?.setContours(contours) // <- ВАЖНО!
+        val intersections = findAllIntersectionsInContours(contours)
+        eglHelper!!.setIntersections(intersections)
         eglHelper?.drawFrame()
         surfaceReady = true
     }
