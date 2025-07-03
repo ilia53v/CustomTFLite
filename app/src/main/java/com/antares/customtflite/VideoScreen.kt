@@ -27,6 +27,10 @@ import com.antares.customtflite.ver2.YoloV8Segmentor
 import com.antares.customtflite.ver2.DetectionGLTextureView
 import com.antares.customtflite.ver2.VideoGLTextureView
 import com.antares.customtflite.ver2.VideoPlayerControlScreen
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -82,10 +86,13 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                     }
 
                     videoView.onFrameCaptured = { frame ->
-                        val contours = yolo.runContoursOnBitmap(frame)
-                        glOverlay.setContours(contours)
+                        CoroutineScope(Dispatchers.Default).launch {
+                            val contours = yolo.runInference(frame)
+                            withContext(Dispatchers.Main) {
+                                glOverlay.setContours(contours)
+                            }
+                        }
                     }
-
                     addView(videoView)
                     addView(glOverlay)
                 }
