@@ -11,7 +11,9 @@ import android.opengl.GLES20
 import android.util.Log
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.FloatBuffer
 
+/*
 class EGLHelper {
 
     private var display: EGLDisplay? = null
@@ -178,8 +180,12 @@ class EGLHelper {
 
             val vertexData = FloatArray(contour.size * 2)
             for ((i, point) in contour.withIndex()) {
-                vertexData[i * 2] = point.x * 2f - 1f
-                vertexData[i * 2 + 1] = 1f - point.y * 2f
+                */
+/*vertexData[i * 2] = point.x * 2f - 1f
+                vertexData[i * 2 + 1] = 1f - point.y * 2f*//*
+
+                vertexData[i * 2] = point.x / width * 2f - 1f
+                vertexData[i * 2 + 1] = 1f - point.y / height * 2f
             }
 
             val buffer = ByteBuffer.allocateDirect(vertexData.size * 4)
@@ -271,6 +277,232 @@ class EGLHelper {
             EGL14.eglTerminate(disp)
         }
 
+        display = null
+        context = null
+        eglSurface = null
+    }
+}
+*/
+
+
+class EGLHelper {
+
+    private var display: EGLDisplay? = null
+    private var context: EGLContext? = null
+    private var eglSurface: EGLSurface? = null
+
+    private var contours: List<List<PointF>> = emptyList()
+    private var intersections: List<PointF> = emptyList()
+
+
+    private var program: Int = 0
+    private var positionHandle: Int = 0
+    private var colorHandle: Int = 0
+    private var surfaceWidth: Int = 0
+    private var surfaceHeight: Int = 0
+
+    fun setContours(contours: List<List<PointF>>) {
+        Log.d("EGLHelper", "setContours called with ${contours.size} contours")
+        this.contours = contours
+    }
+
+    fun setIntersections(points: List<PointF>) {
+        Log.d("EGLHelper", "setIntersections called with ${points.size} points")
+        this.intersections = points
+    }
+
+    private fun convertPointsToFloatBuffer(points: List<PointF>): FloatBuffer {
+        val buffer = ByteBuffer.allocateDirect(points.size * 2 * 4)
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer()
+
+        for (pt in points) {
+            val xNdc = pt.x * 2f - 1f          // pt.x от 0 до 1 -> от -1 до 1
+            val yNdc = 1f - pt.y * 2f          // pt.y от 0 до 1 -> от 1 до -1 (инвертируем Y)
+            buffer.put(xNdc)
+            buffer.put(yNdc)
+        }
+        buffer.position(0)
+        return buffer
+    }
+
+
+
+    fun init(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
+        surfaceWidth = width
+        surfaceHeight = height
+
+        display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+        if (display == EGL14.EGL_NO_DISPLAY) {
+            Log.e("EGLHelper_Init", "Unable to get EGL display")
+            return
+        }
+
+        val version = IntArray(2)
+        if (!EGL14.eglInitialize(display, version, 0, version, 1)) {
+            Log.e("EGLHelper_Init", "Unable to initialize EGL: ${EGL14.eglGetError()}")
+            return
+        }
+
+        val configAttribs = intArrayOf(
+            EGL14.EGL_RED_SIZE, 8,
+            EGL14.EGL_GREEN_SIZE, 8,
+            EGL14.EGL_BLUE_SIZE, 8,
+            EGL14.EGL_ALPHA_SIZE, 8,
+            EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
+            EGL14.EGL_NONE
+        )
+        val configs = arrayOfNulls<EGLConfig>(1)
+        val numConfigs = IntArray(1)
+        if (!EGL14.eglChooseConfig(display, configAttribs, 0, configs, 0, 1, numConfigs, 0)) {
+            Log.e("EGLHelper_Init", "Unable to choose EGL config: ${EGL14.eglGetError()}")
+            return
+        }
+        val config = configs[0] ?: run {
+            Log.e("EGLHelper_Init", "No EGL config found")
+            return
+        }
+
+        val contextAttribs = intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE)
+        context = EGL14.eglCreateContext(display, config, EGL14.EGL_NO_CONTEXT, contextAttribs, 0)
+        if (context == EGL14.EGL_NO_CONTEXT) {
+            Log.e("EGLHelper_Init", "Failed to create EGL context: ${EGL14.eglGetError()}")
+            return
+        }
+
+        val surfaceAttribs = intArrayOf(EGL14.EGL_NONE)
+        eglSurface = EGL14.eglCreateWindowSurface(display, config, surfaceTexture, surfaceAttribs, 0)
+        if (eglSurface == null || eglSurface == EGL14.EGL_NO_SURFACE) {
+            Log.e("EGLHelper_Init", "Failed to create EGL surface: ${EGL14.eglGetError()}")
+            return
+        }
+
+        if (!EGL14.eglMakeCurrent(display, eglSurface, eglSurface, context)) {
+            Log.e("EGLHelper_Init", "Failed to make EGL context current: ${EGL14.eglGetError()}")
+            return
+        }
+
+        Log.d("EGLHelper_Init", "EGL context and surface successfully initialized")
+
+        GLES20.glViewport(0, 0, width, height)
+        GLES20.glEnable(GLES20.GL_BLEND)
+        GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+        GLES20.glClearColor(1f, 0f, 0f, 1f)
+
+        val vertexShaderCode = """
+        attribute vec4 a_Position;
+        void main() {
+            gl_Position = a_Position;
+        }
+    """.trimIndent()
+
+        val fragmentShaderCode = """
+        precision mediump float;
+        uniform vec4 u_Color;
+        void main() {
+            gl_FragColor = u_Color;
+        }
+    """.trimIndent()
+
+        val vertexShader = loadShader(GLES20.GL_VERTEX_SHADER, vertexShaderCode)
+        val fragmentShader = loadShader(GLES20.GL_FRAGMENT_SHADER, fragmentShaderCode)
+
+        program = GLES20.glCreateProgram().also {
+            GLES20.glAttachShader(it, vertexShader)
+            GLES20.glAttachShader(it, fragmentShader)
+            GLES20.glLinkProgram(it)
+            checkProgramLink(it)
+        }
+
+        positionHandle = GLES20.glGetAttribLocation(program, "a_Position")
+        colorHandle = GLES20.glGetUniformLocation(program, "u_Color")
+    }
+
+    private fun checkProgramLink(program: Int) {
+        val linkStatus = IntArray(1)
+        GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, linkStatus, 0)
+        if (linkStatus[0] == 0) {
+            val errorMsg = GLES20.glGetProgramInfoLog(program)
+            GLES20.glDeleteProgram(program)
+            throw RuntimeException("Program link failed: $errorMsg")
+        }
+    }
+
+
+    /*fun drawFrame() {
+        val disp = display ?: return
+        val surf = eglSurface ?: return
+        val ctx = context ?: return
+
+        if (!EGL14.eglMakeCurrent(disp, surf, surf, ctx)) return
+        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
+
+        GLES20.glUseProgram(program)
+
+        for (contour in contours) {
+            if (contour.size < 2) continue
+
+            val vertexBuffer = convertPointsToFloatBuffer(contour)
+            Log.d("EGLHelper", "Drawing ${contours.size} contours")
+            for ((i, contour) in contours.withIndex()) {
+                Log.d("EGLHelper", "Contour $i has ${contour.size} points")
+            }
+            GLES20.glEnableVertexAttribArray(positionHandle)
+            GLES20.glVertexAttribPointer(positionHandle, 2, GLES20.GL_FLOAT, false, 0, vertexBuffer)
+
+            GLES20.glUniform4f(colorHandle, 1f, 0f, 0f, 0.6f)
+            GLES20.glDrawArrays(GLES20.GL_LINE_LOOP, 0, contour.size)
+
+            GLES20.glDisableVertexAttribArray(positionHandle)
+        }
+
+        EGL14.eglSwapBuffers(disp, surf)
+    }
+*/
+
+    fun drawFrame() {
+        val disp = display ?: return
+        val surf = eglSurface ?: return
+        val ctx = context ?: return
+
+        val madeCurrent = EGL14.eglMakeCurrent(disp, surf, surf, ctx)
+        if (!madeCurrent) {
+            Log.e("EGLHelperRed", "eglMakeCurrent failed: ${EGL14.eglGetError()}")
+            return
+        }
+
+        GLES20.glClearColor(1f, 0f, 0f, 1f)
+        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
+
+        val success = EGL14.eglSwapBuffers(disp, surf)
+        if (!success) {
+            Log.e("EGLHelperRed", "eglSwapBuffers failed: ${EGL14.eglGetError()}")
+        } else {
+            Log.d("EGLHelperRed", "eglSwapBuffers successful")
+        }
+    }
+
+    private fun loadShader(type: Int, code: String): Int {
+        val shader = GLES20.glCreateShader(type)
+        GLES20.glShaderSource(shader, code)
+        GLES20.glCompileShader(shader)
+        return shader
+    }
+
+
+    fun onSurfaceChanged(width: Int, height: Int) {
+        surfaceWidth = width
+        surfaceHeight = height
+        GLES20.glViewport(0, 0, width, height)
+    }
+
+
+    fun release() {
+        display?.let { disp ->
+            eglSurface?.let { EGL14.eglDestroySurface(disp, it) }
+            context?.let { EGL14.eglDestroyContext(disp, it) }
+            EGL14.eglTerminate(disp)
+        }
         display = null
         context = null
         eglSurface = null

@@ -7,6 +7,8 @@ import android.util.AttributeSet
 import android.util.Log
 import android.view.TextureView
 import com.antares.customtflite.intersection_point.findAllIntersectionsInContours
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 class DetectionGLTextureView @JvmOverloads constructor(
     context: Context,
@@ -14,43 +16,61 @@ class DetectionGLTextureView @JvmOverloads constructor(
 ) : TextureView(context, attrs), TextureView.SurfaceTextureListener {
 
     private var eglHelper: EGLHelper? = null
+    private var renderThread: Thread? = null
+    @Volatile private var running = false
+
+    private val contoursLock = ReentrantLock()
     private var contours: List<List<PointF>> = emptyList()
-    private var surfaceReady = false
 
     init {
         surfaceTextureListener = this
-        isOpaque = false
     }
 
-    fun setContours(contours: List<List<PointF>>) {
-        Log.d("DetectionGLTextureView", "setContours called with ${contours.size} contours")
-        this.contours = contours
-
-        if (surfaceReady && eglHelper != null) {
-            eglHelper?.setContours(contours)
-            eglHelper?.drawFrame()
+    fun setContours(newContours: List<List<PointF>>) {
+        contoursLock.withLock {
+            contours = newContours
         }
     }
 
     override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-        eglHelper = EGLHelper()
-        eglHelper?.init(surface, width, height)
-        eglHelper?.setContours(contours) // <- ВАЖНО!
-        val intersections = findAllIntersectionsInContours(contours)
-        eglHelper!!.setIntersections(intersections)
-        eglHelper?.drawFrame()
-        surfaceReady = true
+        eglHelper = EGLHelper().apply {
+            init(surface, width, height)
+        }
+
+        running = true
+        renderThread = Thread {
+            while (running) {
+                // Получаем копию текущих контуров с блокировкой
+                val currentContours = contoursLock.withLock {
+                    contours
+                }
+                // Передаём их в EGLHelper и отрисовываем
+                eglHelper?.setContours(currentContours)
+                eglHelper?.drawFrame()
+                Log.d("EGLHelperDetection", "drawFrame called with ${contours.size} contours")
+
+                Thread.sleep(16) // ~60 FPS
+            }
+        }
+        renderThread?.start()
     }
 
-    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
+    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
+        eglHelper?.onSurfaceChanged(width, height)
+    }
+
     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+        running = false
+        renderThread?.join()
+        renderThread = null
+
         eglHelper?.release()
         eglHelper = null
-        surfaceReady = false
+
         return true
     }
 
     override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {
-        eglHelper?.drawFrame()
+        // Не используется
     }
 }
