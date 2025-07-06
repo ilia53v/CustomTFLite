@@ -57,8 +57,9 @@ class YoloV8Segmentor(private val context: Context) {
         return inputBuffer
     }
 
-    fun runInference(bitmap: Bitmap): List<List<PointF>> {
+    /*fun runInference(bitmap: Bitmap): List<List<PointF>> {
         val inputBuffer = preprocessBitmap(bitmap)
+
         val output0Shape = interpreter.getOutputTensor(0).shape()
         val output1Shape = interpreter.getOutputTensor(1).shape()
 
@@ -78,7 +79,7 @@ class YoloV8Segmentor(private val context: Context) {
             interpreter.runForMultipleInputsOutputs(arrayOf(inputBuffer), outputs)
         }
 
-        val confidenceThreshold = 0.2f
+        val confidenceThreshold = 0.5f
         val filteredMaskCoeffs = mutableListOf<FloatArray>()
 
         if (isShape1x8400x38) {
@@ -113,17 +114,101 @@ class YoloV8Segmentor(private val context: Context) {
             }
         }
 
+        val masks = try {
+            MaskUtils2.computeMasks(filteredMaskCoeffs.toTypedArray(), protos)
+        } catch (e: OutOfMemoryError) {
+            Log.e("YoloV8Segmentor", "OOM during mask computation", e)
+            return emptyList()
+        }
+
+        val contours = mutableListOf<List<PointF>>()
+        for (mask in masks) {
+            val contour = MaskUtils2.extractContourFromMask(mask, 160, 160, threshold = 0.6f)
+            if (contour != null && contour.size in 3..1000) {
+                contours.add(contour)
+            }
+        }
+
+        Log.d("YoloV8Segmentor", "Contours found: ${contours.size}")
+        return contours
+    }
+*/
+
+    fun runInference(bitmap: Bitmap): Pair<List<List<PointF>>, FloatArray?>
+    {
+        val inputBuffer = preprocessBitmap(bitmap)
+
+        val output0Shape = interpreter.getOutputTensor(0).shape()
+        val output1Shape = interpreter.getOutputTensor(1).shape()
+
+        val isShape1x8400x38 = output0Shape contentEquals intArrayOf(1, 8400, 38)
+        val isShape1x38x8400 = output0Shape contentEquals intArrayOf(1, 38, 8400)
+
+        val output0: Any = when {
+            isShape1x8400x38 -> Array(1) { Array(8400) { FloatArray(38) } }
+            isShape1x38x8400 -> Array(1) { Array(38) { FloatArray(8400) } }
+            else -> throw IllegalStateException("Unsupported output0 shape: ${output0Shape.joinToString()}")
+        }
+
+        val output1 = Array(1) { Array(160) { Array(160) { FloatArray(32) } } }
+        val outputs = mapOf(0 to output0, 1 to output1)
+
+        synchronized(interpreterLock) {
+            interpreter.runForMultipleInputsOutputs(arrayOf(inputBuffer), outputs)
+        }
+
+        val confidenceThreshold = 0.1f
+        val filteredMaskCoeffs = mutableListOf<FloatArray>()
+
+        if (isShape1x8400x38) {
+            val out0 = output0 as Array<Array<FloatArray>>
+            for (i in 0 until 8400) {
+                val obj = sigmoid(out0[0][i][4])
+                val cls = sigmoid(out0[0][i][5]) // один класс
+                val conf = obj * cls
+                if (conf > confidenceThreshold) {
+                    val coeffs = FloatArray(32) { j -> out0[0][i][6 + j] }
+                    filteredMaskCoeffs.add(coeffs)
+                }
+            }
+        } else if (isShape1x38x8400) {
+            val out0 = output0 as Array<Array<FloatArray>>
+            for (i in 0 until 8400) {
+                val obj = sigmoid(out0[0][4][i])
+                val cls = sigmoid(out0[0][5][i])
+                val conf = obj * cls
+                if (conf > confidenceThreshold) {
+                    val coeffs = FloatArray(32) { j -> out0[0][6 + j][i] }
+                    filteredMaskCoeffs.add(coeffs)
+                }
+            }
+        }
+
+        // Преобразуем output1 -> protos[channel][height][width]
+        val protos = Array(32) { c ->
+            Array(160) { y ->
+                FloatArray(160) { x ->
+                    output1[0][y][x][c]
+                }
+            }
+        }
+
+        // Вычисляем маски
         val masks = MaskUtils2.computeMasks(filteredMaskCoeffs.toTypedArray(), protos)
 
+        // Извлекаем контуры
         val contours = masks.mapNotNull { mask ->
             MaskUtils2.extractContourFromMask(mask, 160, 160, 0.5f)
         }
 
+        // Логгирование
+        Log.d("YoloV8Segmentor", "Contours found: ${contours.size}")
+        Log.d("MaskUtils2", "mask min=${masks.firstOrNull()?.minOrNull()} max=${masks.firstOrNull()?.maxOrNull()}")
 
-        Log.d("YoloV8Segmentor", "First contour first point: ${contours.firstOrNull()?.firstOrNull()}")
-
-        return contours
+// Вернуть контуры + первую маску для отрисовки
+        return contours to masks.firstOrNull()
     }
 
-    private fun sigmoid(x: Float): Float = (1f / (1f + exp(-x)))
+
+    private fun sigmoid(x: Float): Float = 1f / (1f + exp(-x))
 }

@@ -1,6 +1,11 @@
 package com.antares.customtflite.ver2.segmentor
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.PointF
+import android.util.Log
 import com.antares.customtflite.data.Detection2
 
 object MaskUtils2 {
@@ -56,7 +61,9 @@ object MaskUtils2 {
                 }
                 mask[i] = sigmoid(sum)
             }
-
+            val max = mask.maxOrNull()
+            val min = mask.minOrNull()
+            Log.d("MaskUtils2", "mask min=$min max=$max")
             // Копируем маску, чтобы сохранить результат
             masks.add(mask.copyOf())
         }
@@ -70,6 +77,118 @@ object MaskUtils2 {
      * threshold — порог бинаризации (например, 0.5f)
      * Возвращает список точек (PointF) с нормированными координатами [0..1] по X и Y.
      */
+/*    fun extractContourFromMask(
+        mask: FloatArray,
+        maskWidth: Int,
+        maskHeight: Int,
+        threshold: Float = -1f  // -1 означает "выбери автоматически"
+    ): List<PointF>? {
+        // Вычислить адаптивный порог (например, 80% от max)
+        val maxVal = mask.maxOrNull() ?: return null
+        val realThreshold = if (threshold > 0f) threshold else maxVal * 0.8f
+
+        val rawPoints = mutableListOf<PointF>()
+        for (y in 0 until maskHeight) {
+            for (x in 0 until maskWidth) {
+                if (mask[y * maskWidth + x] > realThreshold) {
+                    rawPoints.add(PointF(x.toFloat(), y.toFloat()))
+                }
+            }
+        }
+
+        if (rawPoints.size < 10) return null // Шум, не рисуем
+
+        val hull = convexHull(rawPoints)
+
+        // Нормализуем
+        return hull.map { PointF(it.x / maskWidth, it.y / maskHeight) }
+    }*/
+
+    /*fun extractContourFromMask(
+        mask: FloatArray,
+        maskWidth: Int,
+        maskHeight: Int,
+        threshold: Float = 0.3f  // тоже уменьшен!
+    ): List<PointF>? {
+        val points = mutableListOf<PointF>()
+        for (y in 0 until maskHeight) {
+            for (x in 0 until maskWidth) {
+                if (mask[y * maskWidth + x] > threshold) {
+                    points.add(PointF(x.toFloat() / maskWidth, y.toFloat() / maskHeight))
+                }
+            }
+        }
+        return if (points.isNotEmpty()) points else null
+    }*/
+
+    /*fun drawRawMask(
+        mask: FloatArray,
+        maskWidth: Int = 160,
+        maskHeight: Int = 160,
+        targetWidth: Int,
+        targetHeight: Int
+    ): Bitmap {
+        val bmp = Bitmap.createBitmap(maskWidth, maskHeight, Bitmap.Config.ARGB_8888)
+        val pixels = IntArray(maskWidth * maskHeight)
+
+        for (i in mask.indices) {
+            val value = (mask[i].coerceIn(0f, 1f) * 255).toInt()
+            pixels[i] = Color.argb(value, 255, 0, 0)
+        }
+
+        bmp.setPixels(pixels, 0, maskWidth, 0, 0, maskWidth, maskHeight)
+
+        // Масштабируем до размера видеофрейма
+        return Bitmap.createScaledBitmap(bmp, targetWidth, targetHeight, false)
+    }
+
+    fun extractContourFromMask(
+        mask: FloatArray,
+        maskWidth: Int,
+        maskHeight: Int,
+        threshold: Float = 0.3f // Меньше порог -> больше точек
+    ): List<PointF>? {
+        val binaryMask = BooleanArray(mask.size) { i -> mask[i] > threshold }
+
+        val contours = mutableListOf<List<PointF>>()
+        val visited = BooleanArray(mask.size)
+
+        val dirs = listOf(
+            Pair(0, 1), Pair(1, 0), Pair(0, -1), Pair(-1, 0),
+            Pair(1, 1), Pair(1, -1), Pair(-1, 1), Pair(-1, -1)
+        )
+
+        for (y in 1 until maskHeight - 1) {
+            for (x in 1 until maskWidth - 1) {
+                val idx = y * maskWidth + x
+                if (!visited[idx] && binaryMask[idx]) {
+                    val contour = mutableListOf<PointF>()
+                    val queue = ArrayDeque<Pair<Int, Int>>()
+                    queue.add(Pair(x, y))
+
+                    while (queue.isNotEmpty()) {
+                        val (cx, cy) = queue.removeFirst()
+                        val cidx = cy * maskWidth + cx
+                        if (cx in 0 until maskWidth && cy in 0 until maskHeight && !visited[cidx] && binaryMask[cidx]) {
+                            visited[cidx] = true
+                            contour.add(PointF(cx / maskWidth.toFloat(), cy / maskHeight.toFloat()))
+                            dirs.forEach { (dx, dy) ->
+                                queue.add(Pair(cx + dx, cy + dy))
+                            }
+                        }
+                    }
+
+                    if (contour.size > 20) {
+                        contours.add(contour)
+                    }
+                }
+            }
+        }
+
+        return contours.maxByOrNull { it.size } ?: emptyList()
+    }
+*/
+
     fun extractContourFromMask(
         mask: FloatArray,
         maskWidth: Int,
@@ -77,21 +196,59 @@ object MaskUtils2 {
         threshold: Float = 0.5f
     ): List<PointF>? {
         val points = mutableListOf<PointF>()
+
         for (y in 0 until maskHeight) {
             for (x in 0 until maskWidth) {
-                if (mask[y * maskWidth + x] > threshold) {
+                val value = mask[y * maskWidth + x]
+                if (value > threshold) {
                     points.add(PointF(x.toFloat(), y.toFloat()))
                 }
             }
         }
+
         if (points.isEmpty()) return null
 
-        val hullPoints = convexHull(points)
-
-        return hullPoints.map {
-            PointF(it.x / maskWidth.toFloat(), it.y / maskHeight.toFloat())
-        }
+        // Нормализуем координаты к [0..1]
+        return points.map { PointF(it.x / maskWidth, it.y / maskHeight) }
     }
+
+    fun drawRawMask(
+        mask: FloatArray,
+        maskWidth: Int,
+        maskHeight: Int,
+        canvasWidth: Int,
+        canvasHeight: Int,
+        threshold: Float = 0.5f
+    ): Bitmap {
+        val bitmap = Bitmap.createBitmap(canvasWidth, canvasHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint().apply {
+            style = Paint.Style.FILL
+            color = Color.RED
+            alpha = 100
+        }
+
+        val scaleX = canvasWidth.toFloat() / maskWidth
+        val scaleY = canvasHeight.toFloat() / maskHeight
+
+        for (y in 0 until maskHeight) {
+            for (x in 0 until maskWidth) {
+                val value = mask[y * maskWidth + x]
+                if (value > threshold) {
+                    canvas.drawRect(
+                        x * scaleX,
+                        y * scaleY,
+                        (x + 1) * scaleX,
+                        (y + 1) * scaleY,
+                        paint
+                    )
+                }
+            }
+        }
+
+        return bitmap
+    }
+
 
     private fun sigmoid(x: Float): Float =
         (1f / (1f + kotlin.math.exp(-x)))
