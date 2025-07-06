@@ -1,4 +1,4 @@
-package com.antares.customtflite.ver2
+package com.antares.customtflite.ver2.segmentor
 
 import android.graphics.PointF
 import kotlin.math.exp

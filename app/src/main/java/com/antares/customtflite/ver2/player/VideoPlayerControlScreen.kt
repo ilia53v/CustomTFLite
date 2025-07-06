@@ -1,4 +1,4 @@
-package com.antares.customtflite.ver2
+package com.antares.customtflite.ver2.player
 
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement

@@ -1,9 +1,7 @@
-package com.antares.customtflite.ver2
+package com.antares.customtflite.ver2.opengl
 
 import android.graphics.SurfaceTexture
 import android.opengl.*
-import android.view.Surface
-import android.util.Log
 
 object EGLUtils {
 
