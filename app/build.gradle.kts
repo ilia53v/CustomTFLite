@@ -67,5 +67,6 @@ dependencies {
     implementation ("org.tensorflow:tensorflow-lite:2.9.0")
     implementation ("org.tensorflow:tensorflow-lite-gpu:2.9.0")
     implementation ("org.tensorflow:tensorflow-lite-support:0.4.2")
+    implementation("com.google.mediapipe:tasks-vision:0.10.14")
 
 }

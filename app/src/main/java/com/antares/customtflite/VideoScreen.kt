@@ -1,5 +1,6 @@
 package com.antares.customtflite
 
+import android.graphics.PointF
 import android.net.Uri
 import android.widget.FrameLayout
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -24,8 +25,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.antares.customtflite.canvas_ver3.DetectionOverlayView
+import com.antares.customtflite.canvas_ver3.pose.MediaPipePoseLandmarker
+import com.antares.customtflite.canvas_ver3.pose.PoseOverlayView
 import com.antares.customtflite.ver2.YoloV8Segmentor
-import com.antares.customtflite.ver2.DetectionGLTextureView
 import com.antares.customtflite.ver2.VideoGLTextureView
 import com.antares.customtflite.ver2.VideoPlayerControlScreen
 
@@ -40,11 +42,13 @@ fun VideoScreen() {
 
 @Composable
 fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
+    val context = LocalContext.current
 
     var videoUri by remember { mutableStateOf<Uri?>(null) }
     var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
     val videoViewRef = remember { mutableStateOf<VideoGLTextureView?>(null) }
     val lastInferenceTime = remember { mutableStateOf(0L) }
+    val poseLandmarker = remember { MediaPipePoseLandmarker(context) }
 
 
     val launcher = rememberLauncherForActivityResult(
@@ -76,12 +80,6 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                         videoViewRef.value = this
                     }
 
-                    /*val glOverlay = DetectionGLTextureView(it).apply {
-                        layoutParams = FrameLayout.LayoutParams(
-                            FrameLayout.LayoutParams.MATCH_PARENT,
-                            FrameLayout.LayoutParams.MATCH_PARENT
-                        )
-                    }*/
                     val glOverlay = DetectionOverlayView(it).apply {
                         layoutParams = FrameLayout.LayoutParams(
                             FrameLayout.LayoutParams.MATCH_PARENT,
@@ -89,19 +87,31 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                         )
                     }
 
-                    videoView.onFrameCaptured = { frame ->
-                        /*val contours = yolo.runContoursOnBitmap(frame)
-                        glOverlay.setContours(contours)*/
+                    val poseOverlay = PoseOverlayView(context).apply {
+                        layoutParams = FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT
+                        )
+                    }
+
+                    videoView.onFrameCaptured = { frame, timestampMs  ->
                         val now = System.currentTimeMillis()
                         if (now - lastInferenceTime.value > 500) {
                             lastInferenceTime.value = now
+
                             val contours = yolo.runContoursOnBitmap(frame)
                             glOverlay.setContours(contours)
+
+                            // MediaPipe Pose: Скелеты
+                            val poses = poseLandmarker.detectPoseLandmarksMultiple(frame, timestampMs)
+                            val allPoints = poses.map { it.map { lm -> PointF(lm.x, lm.y) } }
+                            poseOverlay.setAllPoseLandmarks(allPoints)
                         }
                     }
 
                     addView(videoView)
                     addView(glOverlay)
+                    addView(poseOverlay)
                 }
             }, modifier = Modifier
                 .fillMaxWidth()

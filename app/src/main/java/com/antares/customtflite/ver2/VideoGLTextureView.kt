@@ -22,7 +22,7 @@ class VideoGLTextureView @JvmOverloads constructor(
     private var videoUri: Uri? = null
 
     // Callback для передачи захваченного кадра
-    var onFrameCaptured: ((Bitmap) -> Unit)? = null
+    var onFrameCaptured: ((frame: Bitmap, timestampMs: Long) -> Unit)? = null
 
     init {
         surfaceTextureListener = this
@@ -139,7 +139,8 @@ class VideoGLTextureView @JvmOverloads constructor(
         // Автоматический вызов captureFrame после отрисовки кадра
         Log.d("VideoGLTextureView", "SurfaceTexture updated")
         captureFrame()?.let { bitmap ->
-            onFrameCaptured?.invoke(bitmap)
+            val timestamp = mediaPlayer?.currentPosition?.toLong() ?: System.currentTimeMillis()
+            onFrameCaptured?.invoke(bitmap, timestamp)
         }
     }
 }
