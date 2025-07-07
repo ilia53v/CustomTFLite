@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.antares.customtflite.canvas_ver3.DetectionOverlayView
 import com.antares.customtflite.ver2.YoloV8Segmentor
 import com.antares.customtflite.ver2.DetectionGLTextureView
 import com.antares.customtflite.ver2.VideoGLTextureView
@@ -43,6 +44,7 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
     var videoUri by remember { mutableStateOf<Uri?>(null) }
     var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
     val videoViewRef = remember { mutableStateOf<VideoGLTextureView?>(null) }
+    val lastInferenceTime = remember { mutableStateOf(0L) }
 
 
     val launcher = rememberLauncherForActivityResult(
@@ -74,7 +76,13 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                         videoViewRef.value = this
                     }
 
-                    val glOverlay = DetectionGLTextureView(it).apply {
+                    /*val glOverlay = DetectionGLTextureView(it).apply {
+                        layoutParams = FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT
+                        )
+                    }*/
+                    val glOverlay = DetectionOverlayView(it).apply {
                         layoutParams = FrameLayout.LayoutParams(
                             FrameLayout.LayoutParams.MATCH_PARENT,
                             FrameLayout.LayoutParams.MATCH_PARENT
@@ -82,8 +90,14 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                     }
 
                     videoView.onFrameCaptured = { frame ->
-                        val contours = yolo.runContoursOnBitmap(frame)
-                        glOverlay.setContours(contours)
+                        /*val contours = yolo.runContoursOnBitmap(frame)
+                        glOverlay.setContours(contours)*/
+                        val now = System.currentTimeMillis()
+                        if (now - lastInferenceTime.value > 500) {
+                            lastInferenceTime.value = now
+                            val contours = yolo.runContoursOnBitmap(frame)
+                            glOverlay.setContours(contours)
+                        }
                     }
 
                     addView(videoView)
