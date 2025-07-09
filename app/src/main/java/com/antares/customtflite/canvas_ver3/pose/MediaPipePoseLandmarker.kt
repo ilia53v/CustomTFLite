@@ -24,7 +24,7 @@ class MediaPipePoseLandmarker(context: Context) {
             .setRunningMode(RunningMode.VIDEO) // Для видео
             .setMinPosePresenceConfidence(0.5f)
             .setMinTrackingConfidence(0.5f)
-            //.setMinLandmarkConfidence(0.5f)
+            .setMinPoseDetectionConfidence(0.5f)
             .setNumPoses(2) // Обработка до 5 человек
             .build()
 

@@ -11,8 +11,9 @@ import android.util.Log
 import android.view.Surface
 import android.view.TextureView
 
-class VideoGLTextureView @JvmOverloads constructor(
-    context: Context, attrs: AttributeSet? = null
+class VideoGLTextureView(
+    context: Context,
+    attrs: AttributeSet? = null
 ) : TextureView(context, attrs), TextureView.SurfaceTextureListener {
 
     private var mediaPlayer: MediaPlayer? = null
@@ -21,7 +22,7 @@ class VideoGLTextureView @JvmOverloads constructor(
     var onSurfaceReady: (() -> Unit)? = null
     private var videoUri: Uri? = null
 
-    // Callback для передачи захваченного кадра
+    // Callback для передачи захваченного кадра и timestamp
     var onFrameCaptured: ((frame: Bitmap, timestampMs: Long) -> Unit)? = null
 
     init {
@@ -39,17 +40,14 @@ class VideoGLTextureView @JvmOverloads constructor(
     }
 
     fun play() {
-        Log.d("VideoGLTextureView", "play() called")
         mediaPlayer?.takeIf { isPrepared }?.start()
     }
 
     fun pause() {
-        Log.d("VideoGLTextureView", "pause() called")
         mediaPlayer?.pause()
     }
 
     fun setVolume(v: Float) {
-        Log.d("VideoGLTextureView", "setVolume: $v")
         mediaPlayer?.setVolume(v, v)
     }
 
@@ -62,9 +60,10 @@ class VideoGLTextureView @JvmOverloads constructor(
     fun getCurrentPosition(): Int = mediaPlayer?.currentPosition ?: 0
 
     fun setPlaybackSpeed(speed: Float) {
-        Log.d("VideoGLTextureView", "setPlaybackSpeed: $speed")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            mediaPlayer?.playbackParams = mediaPlayer?.playbackParams?.setSpeed(speed)!!
+            mediaPlayer?.let {
+                it.playbackParams = it.playbackParams.setSpeed(speed)
+            }
         }
     }
 
@@ -93,7 +92,7 @@ class VideoGLTextureView @JvmOverloads constructor(
                 prepareAsync()
                 Log.d("VideoGLTextureView", "prepareAsync() called")
             } catch (e: Exception) {
-                Log.e("VideoGLSurfaceView", "Failed to setDataSource", e)
+                Log.e("VideoGLTextureView", "Failed to setDataSource", e)
             }
         }
     }
@@ -102,8 +101,7 @@ class VideoGLTextureView @JvmOverloads constructor(
         return if (isAvailable) {
             try {
                 val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                val result = getBitmap(bitmap)
-                Log.d("captureFrame", "Bitmap size: ${bitmap.width}x${bitmap.height}, getBitmap returned $result")
+                getBitmap(bitmap)
                 bitmap
             } catch (e: Exception) {
                 Log.e("VideoGLTextureView", "captureFrame error: ${e.message}")
@@ -122,9 +120,7 @@ class VideoGLTextureView @JvmOverloads constructor(
         onSurfaceReady?.invoke()
     }
 
-    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
-        Log.d("VideoGLTextureView", "SurfaceTexture size changed: $width x $height")
-    }
+    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
 
     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
         Log.d("VideoGLTextureView", "SurfaceTexture destroyed")
@@ -136,11 +132,10 @@ class VideoGLTextureView @JvmOverloads constructor(
     }
 
     override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {
-        // Автоматический вызов captureFrame после отрисовки кадра
-        Log.d("VideoGLTextureView", "SurfaceTexture updated")
+        // Передаём timestamp из MediaPlayer
+        val timestampMs = mediaPlayer?.currentPosition?.toLong() ?: return
         captureFrame()?.let { bitmap ->
-            val timestamp = mediaPlayer?.currentPosition?.toLong() ?: System.currentTimeMillis()
-            onFrameCaptured?.invoke(bitmap, timestamp)
+            onFrameCaptured?.invoke(bitmap, timestampMs)
         }
     }
 }

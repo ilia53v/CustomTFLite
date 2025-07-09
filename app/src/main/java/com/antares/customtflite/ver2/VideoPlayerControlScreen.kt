@@ -27,11 +27,10 @@ fun VideoPlayerControlScreen(
     videoViewRef: MutableState<VideoGLTextureView?>,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
+
     var isPlaying by remember { mutableStateOf(false) }
     var volume by remember { mutableStateOf(1.0f) }
-    var speed by remember { mutableStateOf(1.0f) }
+    var speed by remember { mutableStateOf(0.5f) }
     var duration by remember { mutableStateOf(0) }
     var position by remember { mutableStateOf(0) }
 

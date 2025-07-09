@@ -2,6 +2,8 @@ package com.antares.customtflite
 
 import android.graphics.PointF
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.widget.FrameLayout
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,6 +32,7 @@ import com.antares.customtflite.canvas_ver3.pose.PoseOverlayView
 import com.antares.customtflite.ver2.YoloV8Segmentor
 import com.antares.customtflite.ver2.VideoGLTextureView
 import com.antares.customtflite.ver2.VideoPlayerControlScreen
+import java.util.concurrent.Executors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,10 +48,11 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
     val context = LocalContext.current
 
     var videoUri by remember { mutableStateOf<Uri?>(null) }
-    var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
+    var playbackSpeed by remember { mutableFloatStateOf(0.5f) }
     val videoViewRef = remember { mutableStateOf<VideoGLTextureView?>(null) }
     val lastInferenceTime = remember { mutableStateOf(0L) }
     val poseLandmarker = remember { MediaPipePoseLandmarker(context) }
+    val lastPoseTimestampMs = remember { mutableStateOf(0L) }
 
 
     val launcher = rememberLauncherForActivityResult(
@@ -76,7 +80,7 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                             FrameLayout.LayoutParams.MATCH_PARENT
                         )
                         setVideoUri(uri)
-                        setPlaybackSpeed(1.0f)
+                        setPlaybackSpeed(0.5f)
                         videoViewRef.value = this
                     }
 
@@ -98,12 +102,13 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                         val now = System.currentTimeMillis()
                         if (now - lastInferenceTime.value > 500) {
                             lastInferenceTime.value = now
+                            val currentTimestamp = videoView.getCurrentPosition().toLong() // ВАЖНО
 
                             val contours = yolo.runContoursOnBitmap(frame)
                             glOverlay.setContours(contours)
 
                             // MediaPipe Pose: Скелеты
-                            val poses = poseLandmarker.detectPoseLandmarksMultiple(frame, timestampMs)
+                            val poses = poseLandmarker.detectPoseLandmarksMultiple(frame, currentTimestamp)
                             val allPoints = poses.map { it.map { lm -> PointF(lm.x, lm.y) } }
                             poseOverlay.setAllPoseLandmarks(allPoints)
                         }
