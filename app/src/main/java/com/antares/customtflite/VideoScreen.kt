@@ -2,8 +2,10 @@ package com.antares.customtflite
 
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.PointF
 import android.net.Uri
 import android.util.Log
+import android.util.Size
 import android.util.SizeF
 import android.widget.FrameLayout
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -239,30 +241,44 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                             lastInferenceTime.value = now
                             isRunning.value = true
 
-                            val width = frame.width
-                            val height = frame.height
+                            val videoW = frame.width
+                            val videoH = frame.height
+                            val inferenceSize = 640
 
-                            if (lastSize.value != width to height) {
-                                overlayBitmapRef.value = Bitmap.createBitmap(
-                                    width, height, Bitmap.Config.ARGB_8888
+                            if (lastSize.value != videoW to videoH) {
+                                overlayBitmapRef.value = Bitmap.createBitmap(inferenceSize, inferenceSize, Bitmap.Config.ARGB_8888)
+                                drawerRef.value = YoloContourDrawer(
+                                    outputSize = Size(inferenceSize, inferenceSize),
+                                    displaySize = Size(videoW, videoH)
                                 )
-                                drawerRef.value = YoloContourDrawer(SizeF(width.toFloat(), height.toFloat()))
-                                lastSize.value = width to height
+                                lastSize.value = videoW to videoH
                             }
 
                             scope.launch {
                                 try {
-                                    val (contours, rawMask) = withContext(Dispatchers.Default) {
+                                    val (contours, rawMask, objects) = withContext(Dispatchers.Default) {
                                         yolo.runInference(frame)
                                     }
 
-                                    val overlay = overlayBitmapRef.value
+                                    val baseOverlay = overlayBitmapRef.value
                                     val drawer = drawerRef.value
-                                    if (overlay != null && drawer != null) {
-                                        // Сначала маску как отладку
-                                        drawer.drawRawMask(rawMask as FloatArray, overlay)
-                                        // Потом контур
-                                        drawer.drawContours(contours, overlay)
+
+                                    if (baseOverlay != null && drawer != null) {
+                                        baseOverlay.eraseColor(Color.TRANSPARENT)
+
+                                        // Логируем bbox для проверки
+                                        objects.forEach { obj ->
+                                            Log.d("BBox", "raw topLeft=${obj.topLeft}, bottomRight=${obj.bottomRight}")
+                                        }
+
+                                        // Предполагается, что bbox уже в координатах 640×640 (inferenceSize)
+                                        val bboxList = objects.map { obj ->
+                                            Triple(obj.topLeft, obj.bottomRight, obj.confidence)
+                                        }
+
+                                        val drawnOverlay = drawer.drawDetections(bboxList, contours)
+
+                                        overlayBitmapRef.value = drawnOverlay
                                     }
                                 } catch (e: Exception) {
                                     e.printStackTrace()
