@@ -52,9 +52,14 @@ object MaskUtils2 {
 
             masks.add(mask.copyOf())
         }
+
         return masks
     }
 
+    /**
+     * Извлечение контуров из бинарной маски.
+     * Возвращает точки в ПИКСЕЛЯХ, а не в нормализованных координатах.
+     */
     fun extractContourFromMask(
         mask: FloatArray,
         maskWidth: Int,
@@ -73,13 +78,12 @@ object MaskUtils2 {
 
         if (points.isEmpty()) return null
 
-        val hull = convexHull(points)
-        return hull.map { PointF(it.x / maskWidth, it.y / maskHeight) }
+        return convexHull(points)
     }
 
     private fun sigmoid(x: Float): Float = 1f / (1f + kotlin.math.exp(-x))
 
-    // Graham Scan — выпуклая оболочка
+    // Выпуклая оболочка методом Грэхема
     private fun convexHull(points: List<PointF>): List<PointF> {
         if (points.size < 3) return points
 

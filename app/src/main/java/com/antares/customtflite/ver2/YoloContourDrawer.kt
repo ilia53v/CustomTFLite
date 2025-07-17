@@ -7,7 +7,6 @@ import android.util.SizeF
 import com.antares.customtflite.ver2.segmentor.MaskUtils2
 
 class YoloContourDrawer(
-    private val outputSize: Size,
     private val displaySize: Size
 ) {
     private val strokePaint = Paint().apply {
@@ -42,14 +41,14 @@ class YoloContourDrawer(
     }
 
     fun drawDetections(
-        bboxList: List<Triple<PointF, PointF, Float>>,
-        contours: List<List<PointF>>
+        bboxList: List<Triple<PointF, PointF, Float>>, // в координатах пикселей
+        contours: List<List<PointF>> // тоже в пикселях
     ): Bitmap {
-        val baseBitmap = Bitmap.createBitmap(outputSize.width, outputSize.height, Bitmap.Config.ARGB_8888)
+        val baseBitmap = Bitmap.createBitmap(displaySize.width, displaySize.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(baseBitmap)
         canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
 
-        // Рисуем боксы
+        // Рисуем bounding box'ы
         bboxList.forEach { (topLeft, bottomRight, confidence) ->
             canvas.drawRect(topLeft.x, topLeft.y, bottomRight.x, bottomRight.y, bboxPaint)
             val confText = "%.2f".format(confidence)
@@ -61,9 +60,9 @@ class YoloContourDrawer(
             if (contour.isEmpty()) return@forEach
 
             val path = Path().apply {
-                moveTo(contour[0].x * outputSize.width, contour[0].y * outputSize.height)
+                moveTo(contour[0].x, contour[0].y)
                 for (pt in contour.drop(1)) {
-                    lineTo(pt.x * outputSize.width, pt.y * outputSize.height)
+                    lineTo(pt.x, pt.y)
                 }
                 close()
             }
@@ -71,7 +70,6 @@ class YoloContourDrawer(
             canvas.drawPath(path, strokePaint)
         }
 
-        // Масштабируем Bitmap под размер видео
-        return Bitmap.createScaledBitmap(baseBitmap, displaySize.width, displaySize.height, true)
+        return baseBitmap // уже в displaySize, без масштабирования
     }
 }

@@ -248,7 +248,7 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                             if (lastSize.value != videoW to videoH) {
                                 overlayBitmapRef.value = Bitmap.createBitmap(inferenceSize, inferenceSize, Bitmap.Config.ARGB_8888)
                                 drawerRef.value = YoloContourDrawer(
-                                    outputSize = Size(inferenceSize, inferenceSize),
+                                    //outputSize = Size(inferenceSize, inferenceSize),
                                     displaySize = Size(videoW, videoH)
                                 )
                                 lastSize.value = videoW to videoH
