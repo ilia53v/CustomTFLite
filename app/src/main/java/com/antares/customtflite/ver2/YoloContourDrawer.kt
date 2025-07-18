@@ -9,19 +9,17 @@ import com.antares.customtflite.ver2.segmentor.MaskUtils2
 class YoloContourDrawer(
     private val displaySize: Size
 ) {
-    private val strokePaint = Paint().apply {
-        strokeWidth = 3f
+    val strokePaint = Paint().apply {
+        color = Color.RED
         style = Paint.Style.STROKE
+        strokeWidth = 2f
         isAntiAlias = true
-        strokeJoin = Paint.Join.ROUND
-        strokeCap = Paint.Cap.ROUND
-        color = Color.YELLOW
     }
 
-    private val fillPaint = Paint().apply {
+    val fillPaint = Paint().apply {
+        color = Color.argb(20, 255, 255, 0) // прозрачный жёлтый
         style = Paint.Style.FILL
         isAntiAlias = true
-        color = Color.argb(100, 255, 255, 0)
     }
 
     private val bboxPaint = Paint().apply {
@@ -41,35 +39,41 @@ class YoloContourDrawer(
     }
 
     fun drawDetections(
-        bboxList: List<Triple<PointF, PointF, Float>>, // в координатах пикселей
-        contours: List<List<PointF>> // тоже в пикселях
+        bboxList: List<Triple<PointF, PointF, Float>>, // координаты в пикселях
+        contours: List<List<PointF>> // нормализованные [0.0, 1.0]
     ): Bitmap {
-        val baseBitmap = Bitmap.createBitmap(displaySize.width, displaySize.height, Bitmap.Config.ARGB_8888)
+        val width = displaySize.width
+        val height = displaySize.height
+
+        val baseBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(baseBitmap)
         canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+        canvas.drawColor(Color.argb(100, 0, 0, 0)) // лёгкий затемняющий фон
 
-        // Рисуем bounding box'ы
+        // 🔲 Bounding boxes
         bboxList.forEach { (topLeft, bottomRight, confidence) ->
             canvas.drawRect(topLeft.x, topLeft.y, bottomRight.x, bottomRight.y, bboxPaint)
             val confText = "%.2f".format(confidence)
             canvas.drawText(confText, topLeft.x + 4f, (topLeft.y - 8f).coerceAtLeast(10f), textPaint)
         }
 
-        // Рисуем контуры
+        // 🧩 Рисуем контуры
         contours.forEach { contour ->
-            if (contour.isEmpty()) return@forEach
+            if (contour.size < 3) return@forEach
 
             val path = Path().apply {
-                moveTo(contour[0].x, contour[0].y)
+                val first = contour.first()
+                moveTo(first.x * width, first.y * height)
                 for (pt in contour.drop(1)) {
-                    lineTo(pt.x, pt.y)
+                    lineTo(pt.x * width, pt.y * height)
                 }
                 close()
             }
-            canvas.drawPath(path, fillPaint)
-            canvas.drawPath(path, strokePaint)
+
+            canvas.drawPath(path, fillPaint)   // Заливка (например, жёлтая с alpha)
+            canvas.drawPath(path, strokePaint) // Контур (например, красный)
         }
 
-        return baseBitmap // уже в displaySize, без масштабирования
+        return baseBitmap
     }
 }
