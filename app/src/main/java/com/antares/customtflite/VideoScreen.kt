@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.antares.customtflite.data.OverlayFrame
 import com.antares.customtflite.ver2.YoloContourDrawer
 import com.antares.customtflite.ver2.segmentor.YoloV8Segmentor
 import com.antares.customtflite.ver2.player.VideoGLTextureView
@@ -55,145 +56,11 @@ fun VideoScreen() {
     VideoInferenceWithOverlayScreen(yolo)
 }
 
-
-/*
 @Composable
 fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
     var videoUri by remember { mutableStateOf<Uri?>(null) }
     val videoViewRef = remember { mutableStateOf<VideoGLTextureView?>(null) }
-
-    // Кэш отрисовки
-    val overlayBitmapRef = remember { mutableStateOf<Bitmap?>(null) }
-    val drawerRef = remember { mutableStateOf<YoloContourDrawer?>(null) }
-    val lastSize = remember { mutableStateOf<Pair<Int, Int>?>(null) }
-    val scope = rememberCoroutineScope()
-    // throttle + флаг
-    val lastInferenceTime = remember { mutableStateOf(0L) }
-    val isRunning = remember { mutableStateOf(false) }
-    val inferenceIntervalMs = 1000L
-
-
-    // Поток для передачи кадров с дебаунсом
-    val frameFlow = remember { MutableSharedFlow<Bitmap>(extraBufferCapacity = 1) }
-
-    // Лаунчим обработку кадров с ограничением частоты
-    LaunchedEffect(frameFlow) {
-        frameFlow
-            .debounce(500)
-            .collectLatest { frame ->
-                val contours = withContext(Dispatchers.Default) {
-                    yolo.runInference(frame)
-                }
-                Log.d("VideoInference", "Contours count: ${contours.size}")
-                withContext(Dispatchers.Main) {
-                    val overlay = overlayBitmapRef.value
-                    val drawer = drawerRef.value
-                    if (overlay != null && drawer != null) {
-                        drawer.drawContours(contours, overlay)
-                    }
-                }
-            }
-    }
-
-    val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri -> uri?.let { videoUri = it } }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Button(onClick = { launcher.launch("video/*") }) {
-            Text("Выбрать видео из галереи")
-        }
-
-        videoUri?.let { uri ->
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(300.dp)
-            ) {
-                AndroidView(factory = { context ->
-                    FrameLayout(context).apply {
-                        val videoView = VideoGLTextureView(context).apply {
-                            layoutParams = FrameLayout.LayoutParams(
-                                FrameLayout.LayoutParams.MATCH_PARENT,
-                                FrameLayout.LayoutParams.MATCH_PARENT
-                            )
-                            setVideoUri(uri)
-                            setPlaybackSpeed(1.0f)
-                            videoViewRef.value = this
-                        }
-
-                        videoView.onFrameCaptured = label@{ frame ->
-                            val now = System.currentTimeMillis()
-                            if (now - lastInferenceTime.value < inferenceIntervalMs) return@label
-                            if (isRunning.value) return@label
-
-                            lastInferenceTime.value = now
-                            isRunning.value = true
-
-                            val width = frame.width
-                            val height = frame.height
-
-                            if (lastSize.value != width to height) {
-                                overlayBitmapRef.value = Bitmap.createBitmap(
-                                    width, height, Bitmap.Config.ARGB_8888
-                                )
-                                drawerRef.value = YoloContourDrawer(SizeF(width.toFloat(), height.toFloat()))
-                                lastSize.value = width to height
-                            }
-
-                            scope.launch {
-                                try {
-                                    val contours = withContext(Dispatchers.Default) {
-                                        yolo.runInference(frame)
-                                    }
-
-                                    val overlay = overlayBitmapRef.value
-                                    val drawer = drawerRef.value
-                                    if (overlay != null && drawer != null) {
-                                        drawer.drawContours(contours, overlay)
-                                    }
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                } finally {
-                                    isRunning.value = false
-                                }
-                            }
-                        }
-                        addView(videoView)
-                    }
-                }, modifier = Modifier.matchParentSize())
-
-                overlayBitmapRef.value?.let { bitmap ->
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = "Contours",
-                        modifier = Modifier.matchParentSize()
-                    )
-                }
-            }
-        }
-
-        VideoPlayerControlScreen(
-            videoUri = videoUri,
-            videoViewRef = videoViewRef
-        )
-    }
-}*/
-
-
- */
-
-@Composable
-fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
-    var videoUri by remember { mutableStateOf<Uri?>(null) }
-    val videoViewRef = remember { mutableStateOf<VideoGLTextureView?>(null) }
-
-    val overlayBitmapRef = remember { mutableStateOf<Bitmap?>(null) }
+    val overlayBitmapRef = remember { mutableStateOf<OverlayFrame?>(null) }
     val drawerRef = remember { mutableStateOf<YoloContourDrawer?>(null) }
     val lastSize = remember { mutableStateOf<Pair<Int, Int>?>(null) }
     val scope = rememberCoroutineScope()
@@ -246,39 +113,40 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                             val inferenceSize = 640
 
                             if (lastSize.value != videoW to videoH) {
-                                overlayBitmapRef.value = Bitmap.createBitmap(inferenceSize, inferenceSize, Bitmap.Config.ARGB_8888)
                                 drawerRef.value = YoloContourDrawer(
-                                    //outputSize = Size(inferenceSize, inferenceSize),
                                     displaySize = Size(videoW, videoH)
                                 )
                                 lastSize.value = videoW to videoH
                             }
 
+                            val frozenFrame = frame.copy(Bitmap.Config.ARGB_8888, false)
+                            val displaySize = drawerRef.value?.displaySize
+                            Log.i("Video", "Frame=${frozenFrame.width}x${frozenFrame.height}, Display=${displaySize?.width}x${displaySize?.height}")
+
                             scope.launch {
                                 try {
                                     val (contours, rawMask, objects) = withContext(Dispatchers.Default) {
-                                        yolo.runInference(frame)
+                                        yolo.runInference(frozenFrame)
                                     }
 
-                                    val baseOverlay = overlayBitmapRef.value
                                     val drawer = drawerRef.value
+                                    if (drawer != null) {
+                                        val filteredObjects = objects.filter { it.confidence >= 0.3f }
 
-                                    if (baseOverlay != null && drawer != null) {
-                                        baseOverlay.eraseColor(Color.TRANSPARENT)
-
-                                        // Логируем bbox для проверки
-                                        objects.forEach { obj ->
-                                            Log.d("BBox", "raw topLeft=${obj.topLeft}, bottomRight=${obj.bottomRight}")
-                                        }
-
-                                        // Предполагается, что bbox уже в координатах 640×640 (inferenceSize)
-                                        val bboxList = objects.map { obj ->
+                                        val bboxList = filteredObjects.map { obj ->
                                             Triple(obj.topLeft, obj.bottomRight, obj.confidence)
                                         }
 
-                                        val drawnOverlay = drawer.drawDetections(bboxList, contours)
+                                        val overlayImage = drawer.drawDetections(
+                                            bboxList = bboxList,
+                                            contours = contours,
+                                            baseFrame = frozenFrame
+                                        )
 
-                                        overlayBitmapRef.value = drawnOverlay
+                                        overlayBitmapRef.value = OverlayFrame(
+                                            image = overlayImage,
+                                            sourceFrame = frozenFrame
+                                        )
                                     }
                                 } catch (e: Exception) {
                                     e.printStackTrace()
@@ -287,14 +155,16 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                                 }
                             }
                         }
+
                         addView(videoView)
                     }
                 }, modifier = Modifier.matchParentSize())
 
-                overlayBitmapRef.value?.let { bitmap ->
+                // Наложение маски и bbox
+                overlayBitmapRef.value?.let { overlayFrame ->
                     Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = "Overlay",
+                        bitmap = overlayFrame.image.asImageBitmap(),
+                        contentDescription = "Overlay Image",
                         modifier = Modifier.matchParentSize()
                     )
                 }

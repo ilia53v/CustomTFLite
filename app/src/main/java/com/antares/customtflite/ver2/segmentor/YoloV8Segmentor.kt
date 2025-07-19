@@ -67,6 +67,7 @@ class YoloV8Segmentor(private val context: Context) {
         val output0Shape = interpreter.getOutputTensor(0).shape()
         val output1Shape = interpreter.getOutputTensor(1).shape()
 
+
         val isShape1x37x8400 = output0Shape contentEquals intArrayOf(1, 37, 8400)
         if (!isShape1x37x8400) {
             throw IllegalStateException("Unsupported output shape: ${output0Shape.joinToString()}")
@@ -83,7 +84,7 @@ class YoloV8Segmentor(private val context: Context) {
             interpreter.runForMultipleInputsOutputs(arrayOf(inputBuffer), outputs)
         }
 
-        val confidenceThreshold = 0.31f
+        val confidenceThreshold = 0.32f
         val filteredMaskCoeffs = mutableListOf<FloatArray>()
         val detectedObjects = mutableListOf<YoloObject>()
 
@@ -157,7 +158,8 @@ class YoloV8Segmentor(private val context: Context) {
             displaySize = Size(bitmap.width, bitmap.height)
         ).drawDetections(
             bboxList = detectedObjects.map { Triple(it.topLeft, it.bottomRight, it.confidence) },
-            contours = contours
+            contours = contours,
+            baseFrame = bitmap
         )
 
         return Quadruple(contours, masks.firstOrNull(), detectedObjects, overlayBitmap)

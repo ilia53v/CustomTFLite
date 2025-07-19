@@ -183,8 +183,6 @@ class VideoGLTextureView @JvmOverloads constructor(
     }
 
     override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {
-        // Логировать каждый кадр может быть очень шумно, оставлю комментарий
-        // Log.d(TAG, "onSurfaceTextureUpdated")
         captureFrame()?.let { bitmap ->
             onFrameCaptured?.invoke(bitmap)
         }
