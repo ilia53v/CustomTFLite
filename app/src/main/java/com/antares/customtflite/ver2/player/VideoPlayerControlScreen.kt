@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material3.Button
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -31,7 +32,7 @@ fun VideoPlayerControlScreen(
     val coroutineScope = rememberCoroutineScope()
     var isPlaying by remember { mutableStateOf(false) }
     var volume by remember { mutableStateOf(1.0f) }
-    var speed by remember { mutableStateOf(1.0f) }
+    var speed by remember { mutableStateOf(0.25f) }
     var duration by remember { mutableStateOf(0) }
     var position by remember { mutableStateOf(0) }
 
@@ -47,7 +48,7 @@ fun VideoPlayerControlScreen(
     }
 
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Button(onClick = {
                 if (isPlaying) {
                     videoViewRef.value?.pause()
@@ -59,12 +60,14 @@ fun VideoPlayerControlScreen(
                 Text(if (isPlaying) "Пауза" else "Воспроизвести")
             }
 
-            Button(onClick = {
+            Button(modifier = Modifier.wrapContentWidth(),
+                onClick = {
                 speed = when (speed) {
-                    0.5f -> 1.0f
-                    1.0f -> 1.5f
-                    1.5f -> 2.0f
-                    else -> 0.5f
+                    0.25f -> 0.5f
+                    0.5f -> 0.75f
+                    0.75f -> 1.0f
+                    1.0f -> 1.25f
+                    else -> 0.25f
                 }
                 videoViewRef.value?.setPlaybackSpeed(speed)
             }) {

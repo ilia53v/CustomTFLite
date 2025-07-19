@@ -5,8 +5,12 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PointF
+import android.graphics.RectF
 import android.util.Log
+import android.util.Size
 import com.antares.customtflite.data.Detection2
+import com.antares.customtflite.data.YoloObject
+import com.antares.customtflite.data.simplifyContour
 
 object MaskUtils2 {
 
@@ -67,38 +71,39 @@ object MaskUtils2 {
      * Возвращает нормализованные [0, 1] координаты или null, если контур слишком мал.
      */
     fun extractContourFromMask(
-        mask: FloatArray,
+        mask: Array<FloatArray>,
         maskWidth: Int,
         maskHeight: Int,
-        threshold: Float
+        threshold: Float,
+        bbox: YoloObject,
+        displaySize: Size
     ): List<PointF>? {
-        val rawPoints = mutableListOf<PointF>()
-        for (y in 0 until maskHeight) {
-            for (x in 0 until maskWidth) {
-                val value = mask[y * maskWidth + x]
-                if (value > threshold) {
-                    rawPoints.add(
-                        PointF(
-                            x.toFloat() / maskWidth.toFloat(),
-                            y.toFloat() / maskHeight.toFloat()
-                        )
-                    )
+        val points = mutableListOf<PointF>()
+
+        val scaleX = displaySize.width / maskWidth.toFloat()
+        val scaleY = displaySize.height / maskHeight.toFloat()
+
+        val left = bbox.topLeft.x
+        val top = bbox.topLeft.y
+        val right = bbox.bottomRight.x
+        val bottom = bbox.bottomRight.y
+
+        for (y in 1 until maskHeight - 1) {
+            for (x in 1 until maskWidth - 1) {
+                if (mask[y][x] > threshold) {
+                    val px = x * scaleX
+                    val py = y * scaleY
+                    if (px in left..right && py in top..bottom) {
+                        points.add(PointF(px, py))
+                    }
                 }
             }
         }
 
-        if (rawPoints.size < MIN_MASK_AREA) {
-            Log.d("MaskUtils", "Contour skipped: too small (${rawPoints.size} points)")
-            return null
-        }
+        if (points.isEmpty()) return null
 
-        val hull = convexHull(rawPoints)
-        return if (hull.size < MIN_CONTOUR_POINTS) {
-            Log.d("MaskUtils", "Convex hull too small (${hull.size})")
-            null
-        } else {
-            hull
-        }
+        // Упрощение контура (опционально)
+        return simplifyContour(points)
     }
 
     private fun sigmoid(x: Float): Float = 1f / (1f + kotlin.math.exp(-x))

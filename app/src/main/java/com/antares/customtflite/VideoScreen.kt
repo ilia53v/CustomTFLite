@@ -96,7 +96,7 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                                 FrameLayout.LayoutParams.MATCH_PARENT
                             )
                             setVideoUri(uri)
-                            setPlaybackSpeed(1.0f)
+                            setPlaybackSpeed(0.5f)
                             videoViewRef.value = this
                         }
 

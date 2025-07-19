@@ -40,7 +40,7 @@ class YoloContourDrawer(
     }
 
 
-    fun drawDetections(
+    /*fun drawDetections(
         bboxList: List<Triple<PointF, PointF, Float>>,
         contours: List<List<PointF>>,
         baseFrame: Bitmap // ← использовать напрямую, не копировать каждый раз
@@ -81,8 +81,40 @@ class YoloContourDrawer(
             canvas.drawPath(path, contourFillPaint)
             canvas.drawPath(path, contourStrokePaint)
         }
-
-
         return baseBitmap
+    }*/
+
+    fun drawDetections(
+        bboxList: List<Triple<PointF, PointF, Float>>,
+        contours: List<List<PointF>>, // Один контур на объект
+        baseFrame: Bitmap
+    ): Bitmap {
+        val output = baseFrame.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(output)
+
+        bboxList.forEachIndexed { i, (topLeft, bottomRight, confidence) ->
+            // Нарисуем bbox
+            canvas.drawRect(topLeft.x, topLeft.y, bottomRight.x, bottomRight.y, bboxPaint)
+
+            val confText = "%.2f".format(confidence)
+            canvas.drawText(confText, topLeft.x + 4f, (topLeft.y - 8f).coerceAtLeast(12f), textPaint)
+
+            val contour = contours.getOrNull(i)
+            if (contour != null && contour.size >= 3) {
+                val path = Path()
+                val first = contour.first()
+                path.moveTo(first.x, first.y)
+
+                for (pt in contour.drop(1)) {
+                    path.lineTo(pt.x, pt.y)
+                }
+
+                path.close()
+                canvas.drawPath(path, contourFillPaint)
+                canvas.drawPath(path, contourStrokePaint)
+            }
+        }
+
+        return output
     }
 }
