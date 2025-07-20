@@ -41,7 +41,7 @@ class YoloContourDrawer(
         setShadowLayer(2f, 1f, 1f, Color.BLACK)
     }
 
-    fun drawDetections(
+    /*fun drawDetections(
         bboxList: List<Triple<PointF, PointF, Float>>,
         contours: List<List<PointF>>,
         baseFrame: Bitmap
@@ -76,5 +76,44 @@ class YoloContourDrawer(
             canvas.drawPath(path, contourStrokePaint)
         }
         return output
+    }*/
+    fun drawDetections(
+        bboxList: List<Triple<PointF, PointF, Float>>,
+        allContours: List<List<List<PointF>>>,
+        baseFrame: Bitmap
+    ): Bitmap {
+        val out = baseFrame.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(out)
+        val random = Random(42)
+
+        bboxList.forEachIndexed { i, (tl, br, conf) ->
+            val color = Color.rgb(random.nextInt(256), random.nextInt(256), random.nextInt(256))
+            bboxPaint.color = color
+            contourFillPaint.color = ColorUtils.setAlphaComponent(color, 64)
+            contourStrokePaint.color = color
+
+            canvas.drawRect(tl.x, tl.y, br.x, br.y, bboxPaint)
+            canvas.drawText("%.2f".format(conf), tl.x + 4f, (tl.y - 8f).coerceAtLeast(12f), textPaint)
+
+            val contourSet = allContours.getOrNull(i) ?: return@forEachIndexed
+            val path = Path()
+
+            contourSet.forEachIndexed { idx, contour ->
+                if (contour.size < 3) return@forEachIndexed
+                if (idx == 0) {
+                    path.moveTo(contour[0].x, contour[0].y)
+                    contour.drop(1).forEach { path.lineTo(it.x, it.y) }
+                    path.close()
+                } else {
+                    path.moveTo(contour[0].x, contour[0].y)
+                    contour.drop(1).forEach { path.lineTo(it.x, it.y) }
+                    path.close()
+                }
+            }
+
+            canvas.drawPath(path, contourFillPaint)
+            canvas.drawPath(path, contourStrokePaint)
+        }
+        return out
     }
 }

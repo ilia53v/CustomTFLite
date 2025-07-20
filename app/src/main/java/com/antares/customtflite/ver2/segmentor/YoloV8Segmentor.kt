@@ -61,7 +61,7 @@ class YoloV8Segmentor(private val context: Context) {
         return inputBuffer
     }
 
-    fun runInference(bitmap: Bitmap): Quadruple<List<List<PointF>>, FloatArray?, List<YoloObject>, Bitmap> {
+    fun runInference(bitmap: Bitmap): Quadruple<List<List<List<PointF>>>, FloatArray?, List<YoloObject>, Bitmap> {
         val inputBuffer = preprocessBitmap(bitmap)
 
         val output0 = Array(1) { Array(37) { FloatArray(8400) } }
@@ -118,7 +118,7 @@ class YoloV8Segmentor(private val context: Context) {
             Array(320) { y -> FloatArray(320) { x -> output1[0][y][x][c] } }
         }
 
-        val contours = mutableListOf<List<PointF>>()
+        val allContours = mutableListOf<List<List<PointF>>>()
         val masks = MaskUtils2.computeMasks(filteredMaskCoeffs.toTypedArray(), protos)
 
         for (i in masks.indices) {
@@ -129,7 +129,7 @@ class YoloV8Segmentor(private val context: Context) {
 
             val bbox = detectedObjects.getOrNull(i) ?: continue
 
-            val contour = MaskUtils2.extractContourFromMask(
+            val contourSet = MaskUtils2.extractContoursFromMask(
                 mask = reshapedMask,
                 maskWidth = 320,
                 maskHeight = 320,
@@ -138,8 +138,8 @@ class YoloV8Segmentor(private val context: Context) {
                 displaySize = Size(bitmap.width, bitmap.height)
             )
 
-            if (!contour.isNullOrEmpty()) {
-                contours.add(contour)
+            if (contourSet.isNotEmpty()) {
+                allContours.add(contourSet)
             }
         }
 
@@ -147,11 +147,11 @@ class YoloV8Segmentor(private val context: Context) {
             displaySize = Size(bitmap.width, bitmap.height)
         ).drawDetections(
             bboxList = detectedObjects.map { Triple(it.topLeft, it.bottomRight, it.confidence) },
-            contours = contours,
+            allContours = allContours, // поддержка дыр
             baseFrame = bitmap
         )
 
-        return Quadruple(contours, masks.firstOrNull(), detectedObjects, overlayBitmap)
+        return Quadruple(allContours, masks.firstOrNull(), detectedObjects, overlayBitmap)
     }
 
     private fun sigmoid(x: Float): Float = 1f / (1f + exp(-x))

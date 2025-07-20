@@ -139,7 +139,7 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
 
                                         val overlayImage = drawer.drawDetections(
                                             bboxList = bboxList,
-                                            contours = contours,
+                                            allContours = contours,
                                             baseFrame = frozenFrame
                                         )
 
