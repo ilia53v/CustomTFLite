@@ -41,42 +41,7 @@ class YoloContourDrawer(
         setShadowLayer(2f, 1f, 1f, Color.BLACK)
     }
 
-    /*fun drawDetections(
-        bboxList: List<Triple<PointF, PointF, Float>>,
-        contours: List<List<PointF>>,
-        baseFrame: Bitmap
-    ): Bitmap {
-        val output = baseFrame.copy(Bitmap.Config.ARGB_8888, true)
-        val canvas = Canvas(output)
 
-        val random = Random(42)
-
-        bboxList.forEachIndexed { i, (topLeft, bottomRight, confidence) ->
-            val bboxColor = Color.rgb(random.nextInt(256), random.nextInt(256), random.nextInt(256))
-            bboxPaint.color = bboxColor
-            contourStrokePaint.color = bboxColor
-            contourFillPaint.color = ColorUtils.setAlphaComponent(bboxColor, 64)
-
-            // Нарисовать bbox
-            canvas.drawRect(topLeft.x, topLeft.y, bottomRight.x, bottomRight.y, bboxPaint)
-
-            val confText = "%.2f".format(confidence)
-            canvas.drawText(confText, topLeft.x + 4f, (topLeft.y - 8f).coerceAtLeast(12f), textPaint)
-
-            val contour = contours.getOrNull(i)?.takeIf { it.size > 10 } ?: return@forEachIndexed
-
-            val path = Path()
-            path.moveTo(contour[0].x, contour[0].y)
-            for (pt in contour.drop(1)) {
-                path.lineTo(pt.x, pt.y)
-            }
-            path.close()
-
-            canvas.drawPath(path, contourFillPaint)
-            canvas.drawPath(path, contourStrokePaint)
-        }
-        return output
-    }*/
     fun drawDetections(
         bboxList: List<Triple<PointF, PointF, Float>>,
         allContours: List<List<List<PointF>>>,
@@ -116,4 +81,84 @@ class YoloContourDrawer(
         }
         return out
     }
+
+    fun drawDetections_two(
+        canvas: Canvas,
+        bboxList: List<Triple<PointF, PointF, Float>>,
+        allContours: List<List<List<PointF>>>
+    ) {
+        val random = Random(42)
+
+        bboxList.forEachIndexed { i, (tl, br, conf) ->
+            val color = Color.rgb(random.nextInt(256), random.nextInt(256), random.nextInt(256))
+            bboxPaint.color = color
+            contourFillPaint.color = ColorUtils.setAlphaComponent(color, 64)
+            contourStrokePaint.color = color
+
+            canvas.drawRect(tl.x, tl.y, br.x, br.y, bboxPaint)
+            canvas.drawText("%.2f".format(conf), tl.x + 4f, (tl.y - 8f).coerceAtLeast(12f), textPaint)
+
+            val contourSet = allContours.getOrNull(i) ?: return@forEachIndexed
+            val path = Path()
+
+            contourSet.forEachIndexed { idx, contour ->
+                if (contour.size < 3) return@forEachIndexed
+                path.moveTo(contour[0].x, contour[0].y)
+                contour.drop(1).forEach { path.lineTo(it.x, it.y) }
+                path.close()
+            }
+
+            canvas.drawPath(path, contourFillPaint)
+            canvas.drawPath(path, contourStrokePaint)
+        }
+    }
+
+    fun drawContoursOnCanvas(
+        baseFrame: Bitmap,
+        allContours: List<List<List<PointF>>>
+    ): Bitmap {
+        val output = baseFrame.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(output)
+
+        val colors = listOf(
+            Color.RED, Color.GREEN, Color.BLUE,
+            Color.YELLOW, Color.CYAN, Color.MAGENTA,
+            Color.LTGRAY, Color.DKGRAY, Color.WHITE
+        )
+
+        val strokePaint = Paint().apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+            isAntiAlias = true
+        }
+
+        var contourIndex = 0
+        var totalContours = 0
+
+        for ((objectIndex, objectContours) in allContours.withIndex()) {
+            for (contour in objectContours) {
+                if (contour.size < 2) continue
+
+                totalContours++
+                strokePaint.color = colors[contourIndex % colors.size]
+
+                val path = Path().apply {
+                    moveTo(contour[0].x, contour[0].y)
+                    for (i in 1 until contour.size) {
+                        lineTo(contour[i].x, contour[i].y)
+                    }
+                    close()
+                }
+
+                Log.d("DrawDebug", "Drawing contour $contourIndex with ${contour.size} points")
+
+                canvas.drawPath(path, strokePaint)
+                contourIndex++
+            }
+        }
+
+        Log.d("DrawDebug", "Total contours drawn: $totalContours")
+        return output
+    }
+
 }

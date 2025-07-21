@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,12 +34,15 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.antares.customtflite.data.OverlayFrame
+import com.antares.customtflite.ver2.FileUtil
 import com.antares.customtflite.ver2.YoloContourDrawer
 import com.antares.customtflite.ver2.segmentor.YoloV8Segmentor
 import com.antares.customtflite.ver2.player.VideoGLTextureView
 import com.antares.customtflite.ver2.player.VideoPlayerControlScreen
+import com.antares.customtflite.ver2.saveVideoWithInferenceCanvasOptimized
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -47,6 +51,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,10 +72,48 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
     val lastInferenceTime = remember { mutableStateOf(0L) }
     val isRunning = remember { mutableStateOf(false) }
     val inferenceIntervalMs = 1000L
+    val context = LocalContext.current
 
-    val launcher = rememberLauncherForActivityResult(
+    val progressPercent = remember { mutableStateOf(0) }
+    var saving by remember { mutableStateOf(false) }
+    var saveResult by remember { mutableStateOf<String?>(null) }
+
+    val videoLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri -> uri?.let { videoUri = it } }
+
+    val saveLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("video/mp4")
+    ) { uri ->
+        uri?.let { selectedUri ->
+            val drawer = drawerRef.value ?: return@let
+            scope.launch {
+                saving = true
+                saveResult = null
+                progressPercent.value = 0
+
+                try {
+                    val outputFile = FileUtil.fromUri(context, selectedUri) // <-- Utility method
+
+                    saveVideoWithInferenceCanvasOptimized(
+                        context = context,
+                        inputUri = videoUri!!,
+                        outputFile = outputFile,
+                        yolo = yolo,
+                        drawer = drawer,
+                        onProgress = { percent -> progressPercent.value = percent }
+                    )
+
+                    saveResult = "Сохранено: ${selectedUri.lastPathSegment}"
+                } catch (e: Exception) {
+                    saveResult = "Ошибка: ${e.message}"
+                    e.printStackTrace()
+                } finally {
+                    saving = false
+                }
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -78,8 +121,33 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Button(onClick = { launcher.launch("video/*") }) {
+        Button(onClick = { videoLauncher.launch("video/*") }) {
             Text("Выбрать видео из галереи")
+        }
+
+        if (videoUri != null) {
+            Button(
+                onClick = {
+                    saveLauncher.launch("output_with_overlay.mp4")
+                },
+                enabled = !saving
+            ) {
+                Text(if (saving) "Сохраняется..." else "Сохранить видео с масками")
+            }
+
+            if (saving) {
+                LinearProgressIndicator(
+                    progress = progressPercent.value / 100f,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                )
+                Text("Прогресс: ${progressPercent.value}%", fontSize = 12.sp)
+            }
+
+            saveResult?.let {
+                Text(it, fontSize = 12.sp)
+            }
         }
 
         videoUri?.let { uri ->
@@ -96,7 +164,7 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                                 FrameLayout.LayoutParams.MATCH_PARENT
                             )
                             setVideoUri(uri)
-                            setPlaybackSpeed(0.5f)
+                            setPlaybackSpeed(0.25f)
                             videoViewRef.value = this
                         }
 
@@ -110,7 +178,6 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
 
                             val videoW = frame.width
                             val videoH = frame.height
-                            val inferenceSize = 640
 
                             if (lastSize.value != videoW to videoH) {
                                 drawerRef.value = YoloContourDrawer(
@@ -120,17 +187,14 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                             }
 
                             val frozenFrame = frame.copy(Bitmap.Config.ARGB_8888, false)
-                            val displaySize = drawerRef.value?.displaySize
-                            Log.i("Video", "Frame=${frozenFrame.width}x${frozenFrame.height}, Display=${displaySize?.width}x${displaySize?.height}")
 
                             scope.launch {
                                 try {
-                                    val (contours, rawMask, objects) = withContext(Dispatchers.Default) {
+                                    val (contours, _, objects) = withContext(Dispatchers.Default) {
                                         yolo.runInference(frozenFrame)
                                     }
 
-                                    val drawer = drawerRef.value
-                                    if (drawer != null) {
+                                    drawerRef.value?.let { drawer ->
                                         val filteredObjects = objects.filter { it.confidence >= 0.3f }
 
                                         val bboxList = filteredObjects.map { obj ->
@@ -160,7 +224,6 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                     }
                 }, modifier = Modifier.matchParentSize())
 
-                // Наложение маски и bbox
                 overlayBitmapRef.value?.let { overlayFrame ->
                     Image(
                         bitmap = overlayFrame.image.asImageBitmap(),

@@ -74,144 +74,111 @@ object MaskUtils2 {
      * Извлекает контур из маски по простому порогу (без OpenCV).
      * Возвращает нормализованные [0, 1] координаты или null, если контур слишком мал.
      */
-    /*fun extractContourFromMask(
-        mask: Array<FloatArray>,
-        maskWidth: Int,
-        maskHeight: Int,
-        threshold: Float,
-        bbox: YoloObject,
-        displaySize: Size
-    ): List<PointF>? {
-        val points = mutableListOf<PointF>()
-
-        val scaleX = displaySize.width / maskWidth.toFloat()
-        val scaleY = displaySize.height / maskHeight.toFloat()
-
-        val left = bbox.topLeft.x
-        val top = bbox.topLeft.y
-        val right = bbox.bottomRight.x
-        val bottom = bbox.bottomRight.y
-
-        for (y in 1 until maskHeight - 1) {
-            for (x in 1 until maskWidth - 1) {
-                if (mask[y][x] > threshold) {
-                    val px = x * scaleX
-                    val py = y * scaleY
-                    if (px in left..right && py in top..bottom) {
-                        points.add(PointF(px, py))
-                    }
-                }
-            }
-        }
-
-        if (points.isEmpty()) return null
-
-        // Упрощение контура (опционально)
-        return simplifyContour(points)
-    }
-*/
-
     fun extractContoursFromMask(
         mask: Array<FloatArray>,
         maskWidth: Int,
         maskHeight: Int,
         threshold: Float,
         bbox: YoloObject,
-        displaySize: Size
-    ): List<List<PointF>> {
+        displaySize: Size,
+        minAreaThreshold: Float = 5f,
+        drawDebugContours: Boolean = true
+    ): Pair<List<List<PointF>>, Bitmap?> {
+        val binarized = Array(maskHeight) { BooleanArray(maskWidth) }
+        var nonZeroCount = 0
+
+        for (y in 0 until maskHeight) {
+            for (x in 0 until maskWidth) {
+                if (mask[y][x] >= threshold) {
+                    binarized[y][x] = true
+                    nonZeroCount++
+                }
+            }
+        }
+
+        Log.d("MaskDebug", "Mask area (non-zero pixels): $nonZeroCount")
+
+        val visited = Array(maskHeight) { BooleanArray(maskWidth) }
         val contours = mutableListOf<List<PointF>>()
+        val debugBitmap = if (drawDebugContours)
+            Bitmap.createBitmap(displaySize.width, displaySize.height, Bitmap.Config.ARGB_8888)
+        else null
+        val canvas = debugBitmap?.let { Canvas(it) }
 
-        // Convert bbox to mask-space integer bounds
-        val left = (bbox.topLeft.x * maskWidth / displaySize.width).toInt().coerceIn(0, maskWidth - 1)
-        val top = (bbox.topLeft.y * maskHeight / displaySize.height).toInt().coerceIn(0, maskHeight - 1)
-        val right = (bbox.bottomRight.x * maskWidth / displaySize.width).toInt().coerceIn(0, maskWidth - 1)
-        val bottom = (bbox.bottomRight.y * maskHeight / displaySize.height).toInt().coerceIn(0, maskHeight - 1)
+        val colors = listOf(Color.RED, Color.GREEN, Color.BLUE, Color.YELLOW, Color.CYAN, Color.MAGENTA)
 
-        // Extract ROI binary mask
-        val binary = Array(bottom - top + 1) { y ->
-            BooleanArray(right - left + 1) { x ->
-                mask[top + y][left + x] > threshold
-            }
-        }
+        var contourIndex = 0
 
-        val roiWidth = binary[0].size
-        val roiHeight = binary.size
+        for (y in 1 until maskHeight - 1) {
+            for (x in 1 until maskWidth - 1) {
+                if (!visited[y][x] && binarized[y][x]) {
+                    val isHole = !binarized[y][x - 1]  // Входит ли извне → наружный контур
 
-        // Отладка — площадь маски
-        val maskArea = binary.sumOf { row -> row.count { it } }
-        Log.i("MaskDebug", "Mask area (non-zero pixels): $maskArea")
+                    val contour = traceBoundary(binarized, visited, x, y)
 
-        // Boundary tracing (external + holes)
-        val visited = Array(roiHeight) { BooleanArray(roiWidth) }
+                    if (contour.size < 3) continue
+                    val area = computePolygonArea(contour.map { PointF(it.first.toFloat(), it.second.toFloat()) })
+                    if (area < minAreaThreshold) continue
 
-        fun traceBoundary(startX: Int, startY: Int): List<Point> {
-            val contour = mutableListOf<Point>()
-            var x = startX
-            var y = startY
-            var dir = 0  // starting direction
+                    Log.d("ContourDebug", "Contour with ${contour.size} points")
+                    Log.d("HoleDebug", "isHole = $isHole, area = $area")
 
-            val dx = intArrayOf(1, 1, 0, -1, -1, -1, 0, 1)
-            val dy = intArrayOf(0, -1, -1, -1, 0, 1, 1, 1)
-
-            do {
-                contour.add(Point(x, y))
-                visited[y][x] = true
-
-                var found = false
-                for (i in 0 until 8) {
-                    val ndir = (dir + i) % 8
-                    val nx = x + dx[ndir]
-                    val ny = y + dy[ndir]
-
-                    if (nx in 0 until roiWidth && ny in 0 until roiHeight && binary[ny][nx] && !visited[ny][nx]) {
-                        x = nx
-                        y = ny
-                        dir = (ndir + 5) % 8 // turn right
-                        found = true
-                        break
+                    // Проецируем координаты в displaySize
+                    val displayContour = contour.map { p ->
+                        PointF(
+                            bbox.topLeft.x + p.first * (bbox.bottomRight.x - bbox.topLeft.x) / maskWidth,
+                            bbox.topLeft.y + p.second * (bbox.bottomRight.y - bbox.topLeft.y) / maskHeight
+                        )
                     }
-                }
 
-                if (!found) break
+                    contours.add(displayContour)
 
-            } while (x != startX || y != startY)
-
-            return contour
-        }
-
-        // Scan entire binary mask
-        for (y in 1 until roiHeight - 1) {
-            for (x in 1 until roiWidth - 1) {
-                if (binary[y][x] && !visited[y][x]) {
-                    val boundary = traceBoundary(x, y)
-                    if (boundary.size >= 3) {
-                        // Map back to full-mask space → display space
-                        val contour = boundary.map { p ->
-                            val px = (left + p.x).toFloat() / maskWidth * displaySize.width
-                            val py = (top + p.y).toFloat() / maskHeight * displaySize.height
-                            PointF(px, py)
+                    // Отладочная отрисовка цветом
+                    if (canvas != null) {
+                        val paint = Paint().apply {
+                            color = colors[contourIndex % colors.size]
+                            style = Paint.Style.STROKE
+                            strokeWidth = 2f
                         }
-                        Log.i("ContourDebug", "Contour with ${contour.size} points")
-                        contours.add(simplifyContour(contour))
+                        val path = Path()
+                        displayContour.firstOrNull()?.let {
+                            path.moveTo(it.x, it.y)
+                        }
+                        for (i in 1 until displayContour.size) {
+                            path.lineTo(displayContour[i].x, displayContour[i].y)
+                        }
+                        path.close()
+                        canvas.drawPath(path, paint)
                     }
+
+                    contourIndex++
                 }
             }
         }
 
-        // fallback: если контуров нет — рисуем bbox
+        // fallback на bbox если пусто
         if (contours.isEmpty()) {
-            Log.w("Fallback", "No contours found, fallback to bbox")
-            val fallback = listOf(
+            Log.w("ContourDebug", "No contours found, using bbox")
+            contours.add(listOf(
                 bbox.topLeft,
                 PointF(bbox.bottomRight.x, bbox.topLeft.y),
                 bbox.bottomRight,
                 PointF(bbox.topLeft.x, bbox.bottomRight.y)
-            )
-            contours.add(fallback)
+            ))
         }
 
-        return contours
+        return Pair(contours, debugBitmap)
     }
+
+    fun computePolygonArea(points: List<PointF>): Float {
+        var area = 0f
+        for (i in points.indices) {
+            val j = (i + 1) % points.size
+            area += points[i].x * points[j].y - points[j].x * points[i].y
+        }
+        return kotlin.math.abs(area / 2f)
+    }
+
 
     private fun sigmoid(x: Float): Float = 1f / (1f + kotlin.math.exp(-x))
 
