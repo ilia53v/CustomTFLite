@@ -137,7 +137,7 @@ class YoloContourDrawer(
 
         for ((objectIndex, objectContours) in allContours.withIndex()) {
             for (contour in objectContours) {
-                if (contour.size < 2) continue
+                if (contour.size < 1) continue
 
                 totalContours++
                 strokePaint.color = colors[contourIndex % colors.size]

@@ -82,7 +82,7 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
         contract = ActivityResultContracts.GetContent()
     ) { uri -> uri?.let { videoUri = it } }
 
-    val saveLauncher = rememberLauncherForActivityResult(
+    /*val saveLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("video/mp4")
     ) { uri ->
         uri?.let { selectedUri ->
@@ -113,7 +113,7 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                 }
             }
         }
-    }
+    }*/
 
     Column(
         modifier = Modifier
@@ -126,7 +126,7 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
         }
 
         if (videoUri != null) {
-            Button(
+            /*Button(
                 onClick = {
                     saveLauncher.launch("output_with_overlay.mp4")
                 },
@@ -134,7 +134,7 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
             ) {
                 Text(if (saving) "Сохраняется..." else "Сохранить видео с масками")
             }
-
+*/
             if (saving) {
                 LinearProgressIndicator(
                     progress = progressPercent.value / 100f,

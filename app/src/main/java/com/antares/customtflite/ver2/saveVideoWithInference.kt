@@ -3,6 +3,7 @@ package com.antares.customtflite.ver2
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.PointF
 import android.graphics.PorterDuff
 import android.graphics.Rect
 import android.media.MediaCodec
@@ -13,11 +14,13 @@ import android.media.MediaMetadataRetriever
 import android.media.MediaMuxer
 import android.net.Uri
 import android.util.Log
+import com.antares.customtflite.data.YoloObject
 import com.antares.customtflite.ver2.segmentor.YoloV8Segmentor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.ByteBuffer
+
 
 suspend fun saveVideoWithInferenceCanvasOptimized(
     context: Context,
@@ -27,18 +30,16 @@ suspend fun saveVideoWithInferenceCanvasOptimized(
     drawer: YoloContourDrawer,
     onProgress: (Int) -> Unit = {}
 ) = withContext(Dispatchers.IO) {
-    val retriever = MediaMetadataRetriever().apply {
-        setDataSource(context, inputUri)
-    }
+    Log.d("VideoSave", "Starting video processing")
+
+    val retriever = MediaMetadataRetriever().apply { setDataSource(context, inputUri) }
 
     val width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toInt() ?: 0
     val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toInt() ?: 0
     val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLong() ?: 0
-    val frameRate = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE)?.toFloat()?.toInt()
-        ?: 30
+    val frameRate = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE)?.toFloat()?.toInt() ?: 30
     val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toInt() ?: 0
 
-    Log.d("VideoSave", "Starting video processing")
     Log.d("VideoSave", "Width=$width Height=$height Duration=$durationMs FrameRate=$frameRate Rotation=$rotation")
 
     val totalFrames = (durationMs / 1000f * frameRate).toInt()
@@ -51,132 +52,115 @@ suspend fun saveVideoWithInferenceCanvasOptimized(
         setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
     }
 
-    val videoEncoder = MediaCodec.createEncoderByType("video/avc")
-    videoEncoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-    val inputSurface = videoEncoder.createInputSurface()
-    videoEncoder.start()
+    val encoder = MediaCodec.createEncoderByType("video/avc")
+    encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+    val inputSurface = encoder.createInputSurface()
+    encoder.start()
     Log.d("VideoSave", "Encoder started")
 
     val muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
     if (rotation != 0) muxer.setOrientationHint(rotation)
 
+    val bufferInfo = MediaCodec.BufferInfo()
     var videoTrackIndex = -1
     var audioTrackIndex = -1
     var muxerStarted = false
-
-    val bufferInfo = MediaCodec.BufferInfo()
     var presentationTimeUs = 0L
 
-    // --- AUDIO EXTRACTION ---
     val extractor = MediaExtractor()
     extractor.setDataSource(context, inputUri, null)
+
+    // Найдём аудиотрек
     for (i in 0 until extractor.trackCount) {
-        val format = extractor.getTrackFormat(i)
-        val mime = format.getString(MediaFormat.KEY_MIME) ?: continue
-        if (mime.startsWith("audio/")) {
+        val formatTrack = extractor.getTrackFormat(i)
+        val mime = formatTrack.getString(MediaFormat.KEY_MIME)
+        if (mime?.startsWith("audio/") == true) {
             extractor.selectTrack(i)
-            audioTrackIndex = muxer.addTrack(format)
+            audioTrackIndex = muxer.addTrack(formatTrack)
             Log.d("VideoSave", "Audio track added: $audioTrackIndex")
             break
         }
     }
 
-    // --- VIDEO PROCESSING LOOP ---
+    // Сохраняем кадры
     for (i in 0 until totalFrames) {
         val frameTimeUs = i * timeStepUs
-        val frameBitmap = retriever.getFrameAtTime(frameTimeUs, MediaMetadataRetriever.OPTION_CLOSEST) ?: continue
-        val (_, _, _, overlayBitmap) = yolo.runInference(frameBitmap)
+        val frameBitmap = retriever.getFrameAtTime(frameTimeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+            ?: continue
+
+        val (contours, _, objects, _) = yolo.runInference(frameBitmap)
+        val bboxList = objects.map { Triple(it.topLeft, it.bottomRight, it.confidence) }
+        val annotated = drawer.drawDetections(bboxList, contours, frameBitmap)
 
         val canvas = inputSurface.lockCanvas(null)
         canvas.drawColor(Color.BLACK, PorterDuff.Mode.CLEAR)
-        canvas.drawBitmap(overlayBitmap, null, Rect(0, 0, width, height), null)
+        canvas.drawBitmap(annotated, null, Rect(0, 0, width, height), null)
         inputSurface.unlockCanvasAndPost(canvas)
 
-        // Read output from encoder
+        // Считывание буфера
         while (true) {
-            val outputIndex = videoEncoder.dequeueOutputBuffer(bufferInfo, 0)
-            when {
-                outputIndex == MediaCodec.INFO_TRY_AGAIN_LATER -> break
-                outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                    if (muxerStarted) error("Format changed after muxer started")
-                    val newFormat = videoEncoder.outputFormat
-                    videoTrackIndex = muxer.addTrack(newFormat)
-                    if (audioTrackIndex != -1 && videoTrackIndex != -1 && !muxerStarted) {
-                        muxer.start()
-                        muxerStarted = true
-                        Log.d("VideoSave", "Video track added: $videoTrackIndex")
-                        Log.d("VideoSave", "Muxer start with both tracks")
-                    }
+            val encoderStatus = encoder.dequeueOutputBuffer(bufferInfo, 10_000)
+            if (encoderStatus == MediaCodec.INFO_TRY_AGAIN_LATER) break
+            if (encoderStatus == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                val newFormat = encoder.outputFormat
+                videoTrackIndex = muxer.addTrack(newFormat)
+                if (audioTrackIndex != -1 && !muxerStarted) {
+                    muxer.start()
+                    muxerStarted = true
+                    Log.d("VideoSave", "Muxer start with both tracks")
                 }
-                outputIndex >= 0 -> {
-                    val encodedData = videoEncoder.getOutputBuffer(outputIndex) ?: continue
-                    if (bufferInfo.size > 0 && muxerStarted) {
-                        encodedData.position(bufferInfo.offset)
-                        encodedData.limit(bufferInfo.offset + bufferInfo.size)
-                        bufferInfo.presentationTimeUs = presentationTimeUs
-                        muxer.writeSampleData(videoTrackIndex, encodedData, bufferInfo)
-                        Log.d("VideoSave", "Video frame written: $presentationTimeUs")
-                        presentationTimeUs += timeStepUs
-                    }
-                    videoEncoder.releaseOutputBuffer(outputIndex, false)
+                Log.d("VideoSave", "Video track added: $videoTrackIndex")
+            } else if (encoderStatus >= 0) {
+                val encodedData = encoder.getOutputBuffer(encoderStatus) ?: continue
+                if (bufferInfo.size > 0 && muxerStarted) {
+                    bufferInfo.presentationTimeUs = presentationTimeUs
+                    encodedData.position(bufferInfo.offset)
+                    encodedData.limit(bufferInfo.offset + bufferInfo.size)
+                    muxer.writeSampleData(videoTrackIndex, encodedData, bufferInfo)
+                    Log.d("VideoSave", "Video frame written: $presentationTimeUs")
                 }
+                encoder.releaseOutputBuffer(encoderStatus, false)
+                presentationTimeUs += timeStepUs
             }
         }
 
-        onProgress(((i + 1) * 100) / totalFrames)
+        onProgress((i + 1) * 100 / totalFrames)
     }
 
-    // --- FINALIZE VIDEO STREAM ---
-    videoEncoder.signalEndOfInputStream()
     Log.d("VideoSave", "Signaled end of video stream")
-    while (true) {
-        val outputIndex = videoEncoder.dequeueOutputBuffer(bufferInfo, 0)
-        if (outputIndex == MediaCodec.INFO_TRY_AGAIN_LATER) break
-        else if (outputIndex >= 0) {
-            val encodedData = videoEncoder.getOutputBuffer(outputIndex) ?: continue
-            if (bufferInfo.size > 0 && muxerStarted) {
-                encodedData.position(bufferInfo.offset)
-                encodedData.limit(bufferInfo.offset + bufferInfo.size)
-                muxer.writeSampleData(videoTrackIndex, encodedData, bufferInfo)
-                Log.d("VideoSave", "Final video frame written")
-            }
-            videoEncoder.releaseOutputBuffer(outputIndex, false)
-        }
-    }
-    videoEncoder.stop()
-    videoEncoder.release()
+    encoder.signalEndOfInputStream()
+    encoder.stop()
+    encoder.release()
     Log.d("VideoSave", "Encoder released")
 
-    // --- WRITE AUDIO ---
-    if (audioTrackIndex != -1 && muxerStarted) {
-        val buffer = ByteBuffer.allocate(1 * 1024 * 1024)
-        val audioInfo = MediaCodec.BufferInfo()
-
+    // Копируем аудио
+    if (audioTrackIndex != -1) {
+        val info = MediaCodec.BufferInfo()
         while (true) {
-            val sampleSize = extractor.readSampleData(buffer, 0)
+            val sampleSize = extractor.readSampleData(ByteBuffer.allocate(1024 * 1024), 0)
             if (sampleSize < 0) break
 
-            audioInfo.offset = 0
-            audioInfo.size = sampleSize
-            audioInfo.flags = MediaCodec.BUFFER_FLAG_KEY_FRAME
-            audioInfo.presentationTimeUs = extractor.sampleTime
+            info.offset = 0
+            info.size = sampleSize
+            info.presentationTimeUs = extractor.sampleTime
+            info.flags = MediaCodec.BUFFER_FLAG_KEY_FRAME
 
-            muxer.writeSampleData(audioTrackIndex, buffer, audioInfo)
-            Log.d("VideoSave", "Audio sample written at ${audioInfo.presentationTimeUs}")
+            val buffer = ByteBuffer.allocate(sampleSize)
+            extractor.readSampleData(buffer, 0)
+            muxer.writeSampleData(audioTrackIndex, buffer, info)
+            Log.d("VideoSave", "Audio sample written at ${info.presentationTimeUs}")
+
             extractor.advance()
         }
+        extractor.release()
+        Log.d("VideoSave", "Audio extractor released")
     }
 
-    extractor.release()
-    Log.d("VideoSave", "Audio extractor released")
-
-    // --- CLOSE MUXER ---
     if (muxerStarted) {
         muxer.stop()
-        muxer.release()
         Log.d("VideoSave", "Muxer stopped")
     }
-
+    muxer.release()
     retriever.release()
     Log.d("VideoSave", "All resources released, file saved: ${outputFile.absolutePath}")
 }

@@ -144,19 +144,19 @@ class YoloV8Segmentor(private val context: Context) {
             }
         }
 
-        /*val overlayBitmap = YoloContourDrawer(
+        val overlayBitmap = YoloContourDrawer(
             displaySize = Size(bitmap.width, bitmap.height)
         ).drawDetections(
             bboxList = detectedObjects.map { Triple(it.topLeft, it.bottomRight, it.confidence) },
             allContours = allContours, // поддержка дыр
             baseFrame = bitmap
-        )*/
-        val overlayBitmap = YoloContourDrawer(
+        )
+        /*val overlayBitmap = YoloContourDrawer(
             displaySize = Size(bitmap.width, bitmap.height)
         ).drawContoursOnCanvas(
             baseFrame = bitmap,
             allContours = allContours
-        )
+        )*/
         return Quadruple(allContours, masks.firstOrNull(), detectedObjects, overlayBitmap)
     }
 
