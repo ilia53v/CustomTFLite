@@ -52,8 +52,9 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
     val drawerRef = remember { mutableStateOf<YoloContourDrawer?>(null) }
     val scope = rememberCoroutineScope()
     val lastInferenceTime = remember { mutableStateOf(0L) }
-    val inferenceIntervalMs = 300L
+    val inferenceIntervalMs = 250L
     val lastSize = remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    val isProcessing = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
 
     val videoLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -88,9 +89,23 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                         }
 
                         videoView.setOnFrameRequested {
+                            if (isProcessing.get()) {
+                                videoView.markFrameProcessed()
+                                return@setOnFrameRequested
+                            }
+                            val now = System.currentTimeMillis()
+                            if (now - lastInferenceTime.value < inferenceIntervalMs) {
+                                videoView.markFrameProcessed()
+                                return@setOnFrameRequested
+                            }
+
+                            isProcessing.set(true)
+                            lastInferenceTime.value = now
+
                             scope.launch(Dispatchers.Default) {
                                 val bitmap = videoView.captureFrame() ?: run {
                                     videoView.markFrameProcessed()
+                                    isProcessing.set(false)
                                     return@launch
                                 }
 
@@ -99,14 +114,7 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                                     lastSize.value = bitmap.width to bitmap.height
                                 }
 
-                                val now = System.currentTimeMillis()
-                                if (now - lastInferenceTime.value < inferenceIntervalMs) {
-                                    videoView.markFrameProcessed()
-                                    return@launch
-                                }
-                                lastInferenceTime.value = now
-
-                                val frozenFrame = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                                val frozenFrame = bitmap.copy(Bitmap.Config.ARGB_8888, true)
                                 val resizedFrame = Bitmap.createScaledBitmap(frozenFrame, 320, 320, true)
 
                                 val (contours, _, objects) = yolo.runInference(resizedFrame)
@@ -130,19 +138,21 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
 
                                 val drawer = drawerRef.value ?: run {
                                     videoView.markFrameProcessed()
+                                    isProcessing.set(false)
                                     return@launch
                                 }
 
-                                val overlay = drawer.drawDetections(bboxList, scaledContours, frozenFrame)
+                                drawer.drawOverlay(bboxList, scaledContours)
 
                                 withContext(Dispatchers.Main) {
+                                    val overlay = drawer.getOverlayBitmap() // или drawer.overlayBitmap, если публичное
                                     overlayBitmapRef.value = OverlayFrame(overlay, frozenFrame)
                                 }
 
                                 videoView.markFrameProcessed()
+                                isProcessing.set(false)
                             }
                         }
-
                         addView(videoView)
                     }
                 }, modifier = Modifier.matchParentSize())
