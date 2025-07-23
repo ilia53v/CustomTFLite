@@ -61,9 +61,8 @@ class YoloV8Segmentor(private val context: Context) {
         return inputBuffer
     }
 
-    fun runInference(bitmap: Bitmap): Quadruple<List<List<List<PointF>>>, FloatArray?, List<YoloObject>, Bitmap> {
+    fun runInference(bitmap: Bitmap): Triple<List<List<List<PointF>>>, FloatArray?, List<YoloObject>> {
         val inputBuffer = preprocessBitmap(bitmap)
-
         val output0 = Array(1) { Array(37) { FloatArray(8400) } }
         val output1 = Array(1) { Array(320) { Array(320) { FloatArray(32) } } }
         val outputs = mapOf(0 to output0, 1 to output1)
@@ -75,24 +74,21 @@ class YoloV8Segmentor(private val context: Context) {
         val videoWidth = bitmap.width.toFloat()
         val videoHeight = bitmap.height.toFloat()
         val confidenceThreshold = 0.32f
-        val out0 = output0
+
         val detectedObjects = mutableListOf<YoloObject>()
         val filteredMaskCoeffs = mutableListOf<FloatArray>()
-
         val numMaskCoeffs = 31
 
         for (i in 0 until 8400) {
-            val obj = sigmoid(out0[0][4][i])
-            val cls = sigmoid(out0[0][5][i])
+            val obj = sigmoid(output0[0][4][i])
+            val cls = sigmoid(output0[0][5][i])
             val conf = obj * cls
-
             if (conf <= confidenceThreshold) continue
 
-            val cx = out0[0][0][i]
-            val cy = out0[0][1][i]
-            val w = out0[0][2][i]
-            val h = out0[0][3][i]
-
+            val cx = output0[0][0][i]
+            val cy = output0[0][1][i]
+            val w = output0[0][2][i]
+            val h = output0[0][3][i]
             if (cx !in 0f..1f || cy !in 0f..1f || w <= 0f || h <= 0f || w > 1f || h > 1f) continue
 
             val absCx = cx * videoWidth
@@ -100,18 +96,13 @@ class YoloV8Segmentor(private val context: Context) {
             val absW = w * videoWidth
             val absH = h * videoHeight
 
-            var left = absCx - absW / 2f
-            var top = absCy - absH / 2f
-            var right = absCx + absW / 2f
-            var bottom = absCy + absH / 2f
-
-            left = left.coerceIn(0f, videoWidth)
-            top = top.coerceIn(0f, videoHeight)
-            right = right.coerceIn(0f, videoWidth)
-            bottom = bottom.coerceIn(0f, videoHeight)
+            val left = (absCx - absW / 2f).coerceIn(0f, videoWidth)
+            val top = (absCy - absH / 2f).coerceIn(0f, videoHeight)
+            val right = (absCx + absW / 2f).coerceIn(0f, videoWidth)
+            val bottom = (absCy + absH / 2f).coerceIn(0f, videoHeight)
 
             detectedObjects.add(YoloObject(PointF(left, top), PointF(right, bottom), conf))
-            filteredMaskCoeffs.add(FloatArray(numMaskCoeffs) { j -> out0[0][6 + j][i] })
+            filteredMaskCoeffs.add(FloatArray(numMaskCoeffs) { j -> output0[0][6 + j][i] })
         }
 
         val protos = Array(32) { c ->
@@ -122,14 +113,11 @@ class YoloV8Segmentor(private val context: Context) {
         val masks = MaskUtils2.computeMasks(filteredMaskCoeffs.toTypedArray(), protos)
 
         for (i in masks.indices) {
-            val flatMask = masks[i] // FloatArray размером 320 * 320
-            val reshapedMask = Array(320) { y ->
-                FloatArray(320) { x -> flatMask[y * 320 + x] }
-            }
-
+            val flatMask = masks[i]
+            val reshapedMask = Array(320) { y -> FloatArray(320) { x -> flatMask[y * 320 + x] } }
             val bbox = detectedObjects.getOrNull(i) ?: continue
 
-            val contourSet = MaskUtils2.extractContoursFromMask(
+            val (contours, _) = MaskUtils2.extractContoursFromMask(
                 mask = reshapedMask,
                 maskWidth = 320,
                 maskHeight = 320,
@@ -138,27 +126,12 @@ class YoloV8Segmentor(private val context: Context) {
                 displaySize = Size(bitmap.width, bitmap.height)
             )
 
-            val (contours, maskBitmap) = contourSet
-            if (contours.isNotEmpty()) {
-                allContours.add(contours)
-            }
+            allContours.add(contours)
         }
 
-        val overlayBitmap = YoloContourDrawer(
-            displaySize = Size(bitmap.width, bitmap.height)
-        ).drawDetections(
-            bboxList = detectedObjects.map { Triple(it.topLeft, it.bottomRight, it.confidence) },
-            allContours = allContours, // поддержка дыр
-            baseFrame = bitmap
-        )
-        /*val overlayBitmap = YoloContourDrawer(
-            displaySize = Size(bitmap.width, bitmap.height)
-        ).drawContoursOnCanvas(
-            baseFrame = bitmap,
-            allContours = allContours
-        )*/
-        return Quadruple(allContours, masks.firstOrNull(), detectedObjects, overlayBitmap)
+        return Triple(allContours, masks.firstOrNull(), detectedObjects)
     }
+
 
     private fun sigmoid(x: Float): Float = 1f / (1f + exp(-x))
 }

@@ -22,6 +22,7 @@ import java.io.File
 import java.nio.ByteBuffer
 
 
+/*
 suspend fun saveVideoWithInferenceCanvasOptimized(
     context: Context,
     inputUri: Uri,
@@ -163,4 +164,4 @@ suspend fun saveVideoWithInferenceCanvasOptimized(
     muxer.release()
     retriever.release()
     Log.d("VideoSave", "All resources released, file saved: ${outputFile.absolutePath}")
-}
+}*/

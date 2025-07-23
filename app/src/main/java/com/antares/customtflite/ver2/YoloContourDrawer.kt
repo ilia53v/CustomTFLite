@@ -6,6 +6,7 @@ import android.util.Size
 import android.util.SizeF
 import androidx.core.graphics.ColorUtils
 import com.antares.customtflite.ver2.segmentor.MaskUtils2
+import java.util.Locale
 import kotlin.random.Random
 
 class YoloContourDrawer(
@@ -47,118 +48,50 @@ class YoloContourDrawer(
         allContours: List<List<List<PointF>>>,
         baseFrame: Bitmap
     ): Bitmap {
-        val out = baseFrame.copy(Bitmap.Config.ARGB_8888, true)
-        val canvas = Canvas(out)
-        val random = Random(42)
+        // Создаём изменяемую копию только один раз
+        val mutableBitmap = baseFrame.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(mutableBitmap)
 
-        bboxList.forEachIndexed { i, (tl, br, conf) ->
-            val color = Color.rgb(random.nextInt(256), random.nextInt(256), random.nextInt(256))
-            bboxPaint.color = color
-            contourFillPaint.color = ColorUtils.setAlphaComponent(color, 64)
-            contourStrokePaint.color = color
+        // Переиспользуем path вместо создания внутри цикла
+        val path = Path()
 
-            canvas.drawRect(tl.x, tl.y, br.x, br.y, bboxPaint)
-            canvas.drawText("%.2f".format(conf), tl.x + 4f, (tl.y - 8f).coerceAtLeast(12f), textPaint)
-
-            val contourSet = allContours.getOrNull(i) ?: return@forEachIndexed
-            val path = Path()
-
-            contourSet.forEachIndexed { idx, contour ->
-                if (contour.size < 3) return@forEachIndexed
-                if (idx == 0) {
-                    path.moveTo(contour[0].x, contour[0].y)
-                    contour.drop(1).forEach { path.lineTo(it.x, it.y) }
-                    path.close()
-                } else {
-                    path.moveTo(contour[0].x, contour[0].y)
-                    contour.drop(1).forEach { path.lineTo(it.x, it.y) }
-                    path.close()
-                }
-            }
-
-            canvas.drawPath(path, contourFillPaint)
-            canvas.drawPath(path, contourStrokePaint)
+        // Генератор фиксированных цветов на объект
+        val colors = List(bboxList.size) {
+            val hue = (it * 37) % 360 // псевдоразнообразие
+            Color.HSVToColor(floatArrayOf(hue.toFloat(), 0.8f, 0.95f))
         }
-        return out
-    }
-
-    fun drawDetections_two(
-        canvas: Canvas,
-        bboxList: List<Triple<PointF, PointF, Float>>,
-        allContours: List<List<List<PointF>>>
-    ) {
-        val random = Random(42)
 
         bboxList.forEachIndexed { i, (tl, br, conf) ->
-            val color = Color.rgb(random.nextInt(256), random.nextInt(256), random.nextInt(256))
-            bboxPaint.color = color
-            contourFillPaint.color = ColorUtils.setAlphaComponent(color, 64)
-            contourStrokePaint.color = color
+            if (tl == br) return@forEachIndexed // защита от нулевого bbox
 
+            val baseColor = colors[i % colors.size]
+            bboxPaint.color = baseColor
+            contourStrokePaint.color = baseColor
+            contourFillPaint.color = ColorUtils.setAlphaComponent(baseColor, 64)
+
+            // Рисуем bbox и текст
             canvas.drawRect(tl.x, tl.y, br.x, br.y, bboxPaint)
-            canvas.drawText("%.2f".format(conf), tl.x + 4f, (tl.y - 8f).coerceAtLeast(12f), textPaint)
+
+            val text = String.format(Locale.US, "%.2f", conf)
+            canvas.drawText(text, tl.x + 4f, (tl.y - 8f).coerceAtLeast(12f), textPaint)
 
             val contourSet = allContours.getOrNull(i) ?: return@forEachIndexed
-            val path = Path()
+            path.reset()
 
-            contourSet.forEachIndexed { idx, contour ->
-                if (contour.size < 3) return@forEachIndexed
+            for (contour in contourSet) {
+                if (contour.size < 3) continue
+
                 path.moveTo(contour[0].x, contour[0].y)
-                contour.drop(1).forEach { path.lineTo(it.x, it.y) }
+                for (j in 1 until contour.size) {
+                    path.lineTo(contour[j].x, contour[j].y)
+                }
                 path.close()
             }
 
             canvas.drawPath(path, contourFillPaint)
             canvas.drawPath(path, contourStrokePaint)
         }
+
+        return mutableBitmap
     }
-
-    fun drawContoursOnCanvas(
-        baseFrame: Bitmap,
-        allContours: List<List<List<PointF>>>
-    ): Bitmap {
-        val output = baseFrame.copy(Bitmap.Config.ARGB_8888, true)
-        val canvas = Canvas(output)
-
-        val colors = listOf(
-            Color.RED, Color.GREEN, Color.BLUE,
-            Color.YELLOW, Color.CYAN, Color.MAGENTA,
-            Color.LTGRAY, Color.DKGRAY, Color.WHITE
-        )
-
-        val strokePaint = Paint().apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 3f
-            isAntiAlias = true
-        }
-
-        var contourIndex = 0
-        var totalContours = 0
-
-        for ((objectIndex, objectContours) in allContours.withIndex()) {
-            for (contour in objectContours) {
-                if (contour.size < 1) continue
-
-                totalContours++
-                strokePaint.color = colors[contourIndex % colors.size]
-
-                val path = Path().apply {
-                    moveTo(contour[0].x, contour[0].y)
-                    for (i in 1 until contour.size) {
-                        lineTo(contour[i].x, contour[i].y)
-                    }
-                    close()
-                }
-
-                Log.d("DrawDebug", "Drawing contour $contourIndex with ${contour.size} points")
-
-                canvas.drawPath(path, strokePaint)
-                contourIndex++
-            }
-        }
-
-        Log.d("DrawDebug", "Total contours drawn: $totalContours")
-        return output
-    }
-
 }
