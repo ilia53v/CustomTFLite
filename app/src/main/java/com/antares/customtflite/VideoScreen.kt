@@ -52,7 +52,7 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
     val drawerRef = remember { mutableStateOf<YoloContourDrawer?>(null) }
     val scope = rememberCoroutineScope()
     val lastInferenceTime = remember { mutableStateOf(0L) }
-    val inferenceIntervalMs = 250L
+    val inferenceIntervalMs = 150L
     val lastSize = remember { mutableStateOf<Pair<Int, Int>?>(null) }
     val isProcessing = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
 
@@ -142,7 +142,15 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                                     return@launch
                                 }
 
-                                drawer.drawOverlay(bboxList, scaledContours)
+                                //drawer.drawOverlay(bboxList, scaledContours)
+                                val minAreaAbs = 0.0002f * frozenFrame.width * frozenFrame.height
+
+                                drawer.drawOverlay(
+                                    bboxes = bboxList,
+                                    contours = scaledContours,
+                                    confidenceThreshold = 0.4f,
+                                    minAreaAbs = minAreaAbs
+                                )
 
                                 withContext(Dispatchers.Main) {
                                     val overlay = drawer.getOverlayBitmap() // или drawer.overlayBitmap, если публичное

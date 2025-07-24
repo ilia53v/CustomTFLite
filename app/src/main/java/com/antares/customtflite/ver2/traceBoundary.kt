@@ -3,7 +3,7 @@ package com.antares.customtflite.ver2
 import android.graphics.Bitmap
 import com.antares.customtflite.data.Pixel
 
-public fun traceBoundary(
+fun traceBoundary(
     binary: Array<BooleanArray>,
     visited: Array<BooleanArray>,
     startX: Int,
@@ -21,13 +21,14 @@ public fun traceBoundary(
     var cx = startX
     var cy = startY
     var dir = 0
+    var first = true
 
     do {
         contour.add(Pair(cx, cy))
         visited[cy][cx] = true
 
         var found = false
-        for (i in 0..7) {
+        for (i in 0 until 8) {
             val ndir = (dir + i) % 8
             val nx = cx + directions[ndir].first
             val ny = cy + directions[ndir].second
@@ -35,15 +36,15 @@ public fun traceBoundary(
             if (nx in 0 until w && ny in 0 until h && binary[ny][nx] && !visited[ny][nx]) {
                 cx = nx
                 cy = ny
-                dir = (ndir + 5) % 8 // направление "вперёд" по контуру
+                dir = (ndir + 5) % 8
                 found = true
                 break
             }
         }
-
         if (!found) break
+        if (!first && cx == startX && cy == startY) break
+        first = false
 
-    } while ((cx != startX || cy != startY) && contour.size < 1000)
-
+    } while (contour.size < 2000)
     return contour
 }

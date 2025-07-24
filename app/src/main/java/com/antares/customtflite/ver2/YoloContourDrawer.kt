@@ -5,6 +5,7 @@ import android.util.Log
 import android.util.Size
 import android.util.SizeF
 import androidx.core.graphics.ColorUtils
+import com.antares.customtflite.data.YoloObject
 import com.antares.customtflite.ver2.segmentor.MaskUtils2
 import java.util.Locale
 import kotlin.random.Random
@@ -44,41 +45,53 @@ class YoloContourDrawer(private val displaySize: Size) {
     fun getOverlayBitmap(): Bitmap = overlayBitmap
 
     fun drawOverlay(
-        bboxList: List<Triple<PointF, PointF, Float>>,
-        allContours: List<List<List<PointF>>>
+        bboxes: List<Triple<PointF, PointF, Float>>,
+        contours: List<List<List<PointF>>>, // сгруппированы по объектам
+        confidenceThreshold: Float = 0.4f,
+        minAreaAbs: Float = 0.01f // может зависеть от размера кадра
     ) {
         val canvas = Canvas(overlayBitmap)
-        canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR) // очищаем предыдущее
+        canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
 
-        val path = Path()
-        val colors = List(bboxList.size) {
-            val hue = (it * 37) % 360
-            Color.HSVToColor(floatArrayOf(hue.toFloat(), 0.8f, 0.95f))
-        }
+        for (i in bboxes.indices) {
+            val (topLeft, bottomRight, confidence) = bboxes[i]
+            if (confidence < confidenceThreshold) continue
 
-        bboxList.forEachIndexed { i, (tl, br, conf) ->
-            val baseColor = colors[i % colors.size]
-            bboxPaint.color = baseColor
-            contourStrokePaint.color = baseColor
-            contourFillPaint.color = ColorUtils.setAlphaComponent(baseColor, 64)
+            val objectContours = contours.getOrNull(i) ?: continue
 
-            canvas.drawRect(tl.x, tl.y, br.x, br.y, bboxPaint)
-            val text = String.format(Locale.US, "%.2f", conf)
-            canvas.drawText(text, tl.x + 4f, (tl.y - 8f).coerceAtLeast(12f), textPaint)
-
-            val contourSet = allContours.getOrNull(i) ?: return@forEachIndexed
-            path.reset()
-            for (contour in contourSet) {
-                if (contour.size < 3) continue
-                path.moveTo(contour[0].x, contour[0].y)
-                for (j in 1 until contour.size) {
-                    path.lineTo(contour[j].x, contour[j].y)
+            for (contour in objectContours) {
+                if (contour.size < 3) {
+                    Log.d("ContourSkip", "Contour skipped: < 3 points (${contour.size})")
+                    continue
                 }
-                path.close()
+
+                val area = MaskUtils2.computePolygonArea(contour)
+                if (area < minAreaAbs) {
+                    Log.d("ContourSkip", "Contour skipped: area too small = $area, minAreaAbs = $minAreaAbs")
+                    continue
+                }
+
+                //  Нарисовать контур
+                val path = Path().apply {
+                    contour.forEachIndexed { index, point ->
+                        if (index == 0) moveTo(point.x, point.y) else lineTo(point.x, point.y)
+                    }
+                    close()
+                }
+                canvas.drawPath(path, contourStrokePaint)
             }
 
-            canvas.drawPath(path, contourFillPaint)
-            canvas.drawPath(path, contourStrokePaint)
+            // Нарисовать bbox
+            canvas.drawRect(RectF(topLeft.x, topLeft.y, bottomRight.x, bottomRight.y), bboxPaint)
+
+            // Нарисовать текст
+            canvas.drawText(
+                String.format("%.2f", confidence),
+                topLeft.x,
+                topLeft.y - 4,
+                textPaint
+            )
         }
     }
+
 }

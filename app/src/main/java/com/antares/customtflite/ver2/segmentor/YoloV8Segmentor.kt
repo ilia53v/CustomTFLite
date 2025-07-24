@@ -2,6 +2,7 @@ package com.antares.customtflite.ver2.segmentor
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.PointF
 import android.util.Log
 import android.util.Size
@@ -73,7 +74,7 @@ class YoloV8Segmentor(private val context: Context) {
 
         val videoWidth = bitmap.width.toFloat()
         val videoHeight = bitmap.height.toFloat()
-        val confidenceThreshold = 0.32f
+        val confidenceThreshold = 0.35f
 
         val detectedObjects = mutableListOf<YoloObject>()
         val filteredMaskCoeffs = mutableListOf<FloatArray>()
@@ -105,19 +106,23 @@ class YoloV8Segmentor(private val context: Context) {
             filteredMaskCoeffs.add(FloatArray(numMaskCoeffs) { j -> output0[0][6 + j][i] })
         }
 
-        val protos = Array(32) { c ->
-            Array(320) { y -> FloatArray(320) { x -> output1[0][y][x][c] } }
+        val protos = Array(32) { c -> Array(320) { y -> FloatArray(320) { x -> output1[0][y][x][c] } } }
+        val masks = MaskUtils2.computeMasks(filteredMaskCoeffs.toTypedArray(), protos)
+
+        if (masks.isEmpty()) {
+            Log.w("YoloV8Segmentor", "No masks computed.")
+            return Triple(emptyList(), null, detectedObjects)
         }
 
         val allContours = mutableListOf<List<List<PointF>>>()
-        val masks = MaskUtils2.computeMasks(filteredMaskCoeffs.toTypedArray(), protos)
 
         for (i in masks.indices) {
             val flatMask = masks[i]
             val reshapedMask = Array(320) { y -> FloatArray(320) { x -> flatMask[y * 320 + x] } }
             val bbox = detectedObjects.getOrNull(i) ?: continue
 
-            val (contours, _) = MaskUtils2.extractContoursFromMask(
+            // (2, 3, 4) — всё внутри
+            val result = MaskUtils2.extractContoursFromMask(
                 mask = reshapedMask,
                 maskWidth = 320,
                 maskHeight = 320,
@@ -126,12 +131,13 @@ class YoloV8Segmentor(private val context: Context) {
                 displaySize = Size(bitmap.width, bitmap.height)
             )
 
-            allContours.add(contours)
+            if (result.contours.isNotEmpty()) {
+                allContours.add(result.contours)
+            }
         }
 
         return Triple(allContours, masks.firstOrNull(), detectedObjects)
     }
-
 
     private fun sigmoid(x: Float): Float = 1f / (1f + exp(-x))
 }
