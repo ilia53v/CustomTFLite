@@ -3,6 +3,7 @@ package com.antares.customtflite
 import android.graphics.Bitmap
 import android.graphics.PointF
 import android.net.Uri
+import android.os.Build
 import android.util.Size
 import android.widget.FrameLayout
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -88,7 +89,7 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                             videoViewRef.value = this
                         }
 
-                        videoView.setOnFrameRequested {
+                        /*videoView.setOnFrameRequested {
                             if (isProcessing.get()) {
                                 videoView.markFrameProcessed()
                                 return@setOnFrameRequested
@@ -101,6 +102,7 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
 
                             isProcessing.set(true)
                             lastInferenceTime.value = now
+                            videoView.pause() //  стоп видео
 
                             scope.launch(Dispatchers.Default) {
                                 val bitmap = videoView.captureFrame() ?: run {
@@ -142,7 +144,6 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                                     return@launch
                                 }
 
-                                //drawer.drawOverlay(bboxList, scaledContours)
                                 val minAreaAbs = 0.0002f * frozenFrame.width * frozenFrame.height
 
                                 drawer.drawOverlay(
@@ -155,12 +156,87 @@ fun VideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                                 withContext(Dispatchers.Main) {
                                     val overlay = drawer.getOverlayBitmap() // или drawer.overlayBitmap, если публичное
                                     overlayBitmapRef.value = OverlayFrame(overlay, frozenFrame)
+                                    //videoView.play() // ️ верни воспроизведение
+                                }
+
+                                videoView.markFrameProcessed()
+                                isProcessing.set(false)
+                            }
+                        }*/
+                        videoView.setOnFrameRequested {
+                            if (isProcessing.get()) {
+                                videoView.markFrameProcessed()
+                                return@setOnFrameRequested
+                            }
+                            val now = System.currentTimeMillis()
+                            if (now - lastInferenceTime.value < inferenceIntervalMs) {
+                                videoView.markFrameProcessed()
+                                return@setOnFrameRequested
+                            }
+
+                            isProcessing.set(true)
+                            lastInferenceTime.value = now
+
+                            scope.launch(Dispatchers.Default) {
+                                val bitmap = videoView.captureFrame() ?: run {
+                                    videoView.markFrameProcessed()
+                                    isProcessing.set(false)
+                                    return@launch
+                                }
+
+                                if (lastSize.value != (bitmap.width to bitmap.height)) {
+                                    drawerRef.value = YoloContourDrawer(Size(bitmap.width, bitmap.height))
+                                    lastSize.value = bitmap.width to bitmap.height
+                                }
+
+                                val frozenFrame = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+
+                                val resizedFrame = Bitmap.createScaledBitmap(frozenFrame, 320, 320, true)
+
+                                val (contours, _, objects) = yolo.runInference(resizedFrame)
+
+                                val scaleX = frozenFrame.width / 320f
+                                val scaleY = frozenFrame.height / 320f
+
+                                val bboxList = objects.map {
+                                    val tl = PointF(it.topLeft.x * scaleX, it.topLeft.y * scaleY)
+                                    val br = PointF(it.bottomRight.x * scaleX, it.bottomRight.y * scaleY)
+                                    Triple(tl, br, it.confidence)
+                                }
+
+                                val scaledContours = contours.map { contourGroup ->
+                                    contourGroup.map { contour ->
+                                        contour.map { point ->
+                                            PointF(point.x * scaleX, point.y * scaleY)
+                                        }
+                                    }
+                                }
+
+                                val drawer = drawerRef.value ?: run {
+                                    videoView.markFrameProcessed()
+                                    isProcessing.set(false)
+                                    return@launch
+                                }
+
+                                val minAreaAbs = 0.0002f * frozenFrame.width * frozenFrame.height
+
+                                drawer.drawOverlay(
+                                    bboxes = bboxList,
+                                    contours = scaledContours,
+                                    confidenceThreshold = 0.4f,
+                                    minAreaAbs = minAreaAbs
+                                )
+
+                                withContext(Dispatchers.Main) {
+                                    val overlay = drawer.getOverlayBitmap()
+                                    overlayBitmapRef.value = OverlayFrame(overlay, frozenFrame)
                                 }
 
                                 videoView.markFrameProcessed()
                                 isProcessing.set(false)
                             }
                         }
+
                         addView(videoView)
                     }
                 }, modifier = Modifier.matchParentSize())
