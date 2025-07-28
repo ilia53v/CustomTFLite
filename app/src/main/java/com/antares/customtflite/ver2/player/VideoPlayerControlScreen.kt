@@ -47,7 +47,7 @@ fun VideoPlayerControlScreen(
         }
     }
 
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Button(onClick = {
                 if (isPlaying) {

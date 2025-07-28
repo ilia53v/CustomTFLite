@@ -88,8 +88,18 @@ object MaskUtils2 {
         var skippedSmallArea = 0
         var totalFound = 0
 
-        val minAreaAbs = 0.0005f * displaySize.width * displaySize.height
         val visited = Array(maskHeight) { BooleanArray(maskWidth) }
+
+        // BBox в абсолютных display координатах
+        val x1 = bbox.topLeft.x
+        val y1 = bbox.topLeft.y
+        val x2 = bbox.bottomRight.x
+        val y2 = bbox.bottomRight.y
+        val bboxWidth = x2 - x1
+        val bboxHeight = y2 - y1
+
+        val minAreaRatio = 0.02f
+        val minAreaAbs = bboxWidth * bboxHeight * minAreaRatio
 
         for (y in 0 until maskHeight) {
             for (x in 0 until maskWidth) {
@@ -100,28 +110,32 @@ object MaskUtils2 {
 
                 if (contour.size < 3) {
                     skippedFewPoints++
-                    Log.d("ContourSkip", "Contour skipped: < 3 points (${contour.size})")
                     continue
                 }
 
-                val area = computePolygonArea(contour)
+                // Преобразование координат в display внутри bbox
+                val displayContour = contour.map { pt ->
+                    val xNorm = pt.x / maskWidth
+                    val yNorm = pt.y / maskHeight
+                    val xScaled = x1 + xNorm * bboxWidth
+                    val yScaled = y1 + yNorm * bboxHeight
+                    PointF(xScaled, yScaled)
+                }
+
+                val area = computePolygonArea(displayContour)
                 if (area < minAreaAbs) {
                     skippedSmallArea++
-                    Log.d("ContourSkip", "Contour skipped: area too small = $area, minAreaAbs = $minAreaAbs")
                     continue
-                }
-
-                val displayContour = contour.map { pt ->
-                    val xScaled = pt.x / maskWidth * displaySize.width
-                    val yScaled = pt.y / maskHeight * displaySize.height
-                    PointF(xScaled, yScaled)
                 }
 
                 contours.add(displayContour)
             }
         }
 
-        Log.d("ContourDebug", "Total extracted contours: $totalFound, valid: ${contours.size}, skipped: ${skippedFewPoints + skippedSmallArea} (too small: $skippedSmallArea, <3 pts: $skippedFewPoints)")
+        Log.d(
+            "ContourDebug",
+            "Contours: $totalFound, valid: ${contours.size}, skipped: ${skippedFewPoints + skippedSmallArea} (small: $skippedSmallArea, <3: $skippedFewPoints)"
+        )
 
         return ContourExtractionResult(
             contours = contours,
@@ -130,6 +144,7 @@ object MaskUtils2 {
             skippedTooFewPoints = skippedFewPoints
         )
     }
+
 
     fun computePolygonArea(points: List<PointF>): Float {
         var area = 0f

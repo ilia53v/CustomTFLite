@@ -52,11 +52,9 @@ class YoloContourDrawer(private val displaySize: Size) {
     ) {
         val canvas = Canvas(overlayBitmap)
         canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-
         for (i in bboxes.indices) {
             val (topLeft, bottomRight, confidence) = bboxes[i]
             if (confidence < confidenceThreshold) continue
-
             val objectContours = contours.getOrNull(i) ?: continue
 
             for (contour in objectContours) {
@@ -93,5 +91,4 @@ class YoloContourDrawer(private val displaySize: Size) {
             )
         }
     }
-
 }
