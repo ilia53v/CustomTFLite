@@ -47,8 +47,8 @@ class YoloContourDrawer(private val displaySize: Size) {
     fun drawOverlay(
         bboxes: List<Triple<PointF, PointF, Float>>,
         contours: List<List<List<PointF>>>, // сгруппированы по объектам
-        confidenceThreshold: Float = 0.4f,
-        minAreaAbs: Float = 0.01f // может зависеть от размера кадра
+        confidenceThreshold: Float,
+        minAreaAbs: Float // может зависеть от размера кадра
     ) {
         val canvas = Canvas(overlayBitmap)
         canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)

@@ -50,6 +50,7 @@ fun LandscapeVideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
     val inferenceIntervalMs = 150L
     val lastSize = remember { mutableStateOf<Pair<Int, Int>?>(null) }
     val isProcessing = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
+    val confidenceThreshold = 0.35f
 
     val videoLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -103,7 +104,7 @@ fun LandscapeVideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
 
                             val frozenFrame = bitmap.copy(Bitmap.Config.ARGB_8888, true)
                             val resizedFrame = Bitmap.createScaledBitmap(frozenFrame, 320, 320, true)
-                            val (contours, _, objects) = yolo.runInference(resizedFrame)
+                            val (contours, _, objects) = yolo.runInference(resizedFrame, confidenceThreshold)
 
                             val scaleX = frozenFrame.width / 320f
                             val scaleY = frozenFrame.height / 320f
@@ -131,15 +132,14 @@ fun LandscapeVideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                             drawer.drawOverlay(
                                 bboxes = bboxList,
                                 contours = scaledContours,
-                                confidenceThreshold = 0.4f,
-                                minAreaAbs = minAreaAbs
+                                confidenceThreshold = confidenceThreshold,
+                                minAreaAbs = minAreaAbs // = 0.01f
                             )
 
                             withContext(Dispatchers.Main) {
                                 val overlay = drawer.getOverlayBitmap()
                                 overlayBitmapRef.value = OverlayFrame(overlay, frozenFrame)
                             }
-
                             videoView.markFrameProcessed()
                             isProcessing.set(false)
                         }

@@ -62,7 +62,7 @@ class YoloV8Segmentor(private val context: Context) {
         return inputBuffer
     }
 
-    fun runInference(bitmap: Bitmap): Triple<List<List<List<PointF>>>, FloatArray?, List<YoloObject>> {
+    fun runInference(bitmap: Bitmap, confidenceThreshold: Float): Triple<List<List<List<PointF>>>, FloatArray?, List<YoloObject>> {
         val inputBuffer = preprocessBitmap(bitmap)
         val output0 = Array(1) { Array(37) { FloatArray(8400) } }
         val output1 = Array(1) { Array(320) { Array(320) { FloatArray(32) } } }
@@ -74,7 +74,7 @@ class YoloV8Segmentor(private val context: Context) {
 
         val videoWidth = bitmap.width.toFloat()
         val videoHeight = bitmap.height.toFloat()
-        val confidenceThreshold = 0.35f
+        val confidenceThreshold = confidenceThreshold
 
         val detectedObjects = mutableListOf<YoloObject>()
         val filteredMaskCoeffs = mutableListOf<FloatArray>()
