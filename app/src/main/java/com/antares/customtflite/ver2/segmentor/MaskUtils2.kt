@@ -26,7 +26,7 @@ object MaskUtils2 {
     private var reusableMask: FloatArray? = null
     private var reusableProtoBuffer: FloatArray? = null
 
-    fun computeMasks(
+/*    fun computeMasks(
         maskCoeffs: Array<FloatArray>,
         protos: Array<Array<FloatArray>> // [32][320][320]
     ): List<FloatArray> {
@@ -69,82 +69,164 @@ object MaskUtils2 {
         }
 
         return masks
+    }*/
+
+    fun computeMasks(
+        maskCoeffs: Array<FloatArray>,
+        protos: Array<Array<Array<FloatArray>>> // [1][320][320][32]
+    ): List<FloatArray> {
+        val channels = 32
+        val height = 320
+        val width = 320
+        val hw = height * width
+        val protoSize = hw * channels
+
+        val protoBuffer = reusableProtoBuffer?.takeIf { it.size == protoSize }
+            ?: FloatArray(protoSize).also { reusableProtoBuffer = it }
+
+        for (c in 0 until channels) {
+            for (y in 0 until height) {
+                for (x in 0 until width) {
+                    val index = (y * width + x) * channels + c
+                    protoBuffer[index] = protos[0][y][x][c]
+                }
+            }
+        }
+
+        val masks = ArrayList<FloatArray>(minOf(maskCoeffs.size, MAX_MASKS))
+
+        for (coeffs in maskCoeffs.take(MAX_MASKS)) {
+            val mask = reusableMask?.takeIf { it.size == hw }
+                ?: FloatArray(hw).also { reusableMask = it }
+
+            val useC = minOf(coeffs.size, channels)
+
+            for (i in 0 until hw) {
+                var sum = 0f
+                for (c in 0 until useC) {
+                    sum += coeffs[c] * protoBuffer[i * channels + c]
+                }
+                mask[i] = sigmoid(sum)
+            }
+
+            masks.add(mask.copyOf())
+        }
+        return masks
     }
 
     /**
      * Извлекает контур из маски по простому порогу (без OpenCV).
      * Возвращает нормализованные [0, 1] координаты или null, если контур слишком мал.
      */
+    //отрисовываются оба контура, но не всегда
+    /*fun extractContoursFromMask(
+        mask: Array<FloatArray>,
+        maskWidth: Int,
+        maskHeight: Int,
+        threshold: Float,
+        bbox: YoloObject,
+        displaySize: Size,
+        isWeak: Boolean
+    ): ContourExtractionResult {
+        val points = mutableListOf<PointF>()
+
+        val xScale = displaySize.width / maskWidth.toFloat()
+        val yScale = displaySize.height / maskHeight.toFloat()
+
+        val left = bbox.topLeft.x
+        val top = bbox.topLeft.y
+        val right = bbox.bottomRight.x
+        val bottom = bbox.bottomRight.y
+
+        for (y in 0 until maskHeight) {
+            for (x in 0 until maskWidth) {
+                if (mask[y][x] > threshold) {
+                    val px = x * xScale
+                    val py = y * yScale
+                    if (px in left..right && py in top..bottom) {
+                        points.add(PointF(px, py))
+                    }
+                }
+            }
+        }
+
+        val simplified = simplifyContour(points)
+        return ContourExtractionResult(
+            contours = listOf(simplified),
+            isWeak = isWeak
+        )
+    }*/
+    //отрисовываются оба контура, но не всегда
     fun extractContoursFromMask(
         mask: Array<FloatArray>,
         maskWidth: Int,
         maskHeight: Int,
         threshold: Float,
         bbox: YoloObject,
-        displaySize: Size
+        displaySize: Size,
+        isWeak: Boolean
     ): ContourExtractionResult {
         val contours = mutableListOf<List<PointF>>()
-        var skippedFewPoints = 0
-        var skippedSmallArea = 0
-        var totalFound = 0
-
         val visited = Array(maskHeight) { BooleanArray(maskWidth) }
 
-        // BBox в абсолютных display координатах
-        val x1 = bbox.topLeft.x
-        val y1 = bbox.topLeft.y
-        val x2 = bbox.bottomRight.x
-        val y2 = bbox.bottomRight.y
-        val bboxWidth = x2 - x1
-        val bboxHeight = y2 - y1
+        val left = bbox.topLeft.x
+        val right = bbox.bottomRight.x
+        val top = bbox.topLeft.y
+        val bottom = bbox.bottomRight.y
 
-        val minAreaRatio = 0.02f
-        val minAreaAbs = bboxWidth * bboxHeight * minAreaRatio
+        val scaleX = displaySize.width / maskWidth.toFloat()
+        val scaleY = displaySize.height / maskHeight.toFloat()
+
+        // Адаптивный порог площади (меньше для уверенных объектов)
+        val minAreaAbs = if (bbox.confidence < 0.6f) {
+            0.0005f * displaySize.width * displaySize.height
+        } else {
+            0.0001f * displaySize.width * displaySize.height
+        }
 
         for (y in 0 until maskHeight) {
             for (x in 0 until maskWidth) {
                 if (mask[y][x] < threshold || visited[y][x]) continue
 
-                val contour = getConnectedContour(mask, x, y, threshold, visited)
-                totalFound++
+                val rawContour = getConnectedContour(mask, x, y, threshold, visited)
 
-                if (contour.size < 3) {
-                    skippedFewPoints++
+                if (rawContour.size < 3) {
+                    Log.d("ContourSkip", "Contour skipped: < 3 points (${rawContour.size})")
                     continue
                 }
 
-                // Преобразование координат в display внутри bbox
-                val displayContour = contour.map { pt ->
-                    val xNorm = pt.x / maskWidth
-                    val yNorm = pt.y / maskHeight
-                    val xScaled = x1 + xNorm * bboxWidth
-                    val yScaled = y1 + yNorm * bboxHeight
-                    PointF(xScaled, yScaled)
+                // Масштабируем координаты в display space
+                val scaled = rawContour.map { pt ->
+                    PointF(pt.x * scaleX, pt.y * scaleY)
                 }
 
-                val area = computePolygonArea(displayContour)
+                // Фильтрация по bbox
+                val inside = scaled.filter { it.x in left..right && it.y in top..bottom }
+
+                if (inside.size < 3) {
+                    Log.d("ContourSkip", "Contour skipped after bbox crop: < 3 points (${inside.size})")
+                    continue
+                }
+
+                val area = computePolygonArea(inside)
                 if (area < minAreaAbs) {
-                    skippedSmallArea++
+                    Log.d("ContourSkip", "Contour skipped: area too small = $area, minAreaAbs = $minAreaAbs")
                     continue
                 }
 
-                contours.add(displayContour)
+                // Добавляем упрощённый контур
+                val simplified = simplifyContour(inside)
+                contours.add(simplified)
+
+                Log.d("ContourDebug", "Contour kept: area = $area, points = ${simplified.size}")
             }
         }
 
-        Log.d(
-            "ContourDebug",
-            "Contours: $totalFound, valid: ${contours.size}, skipped: ${skippedFewPoints + skippedSmallArea} (small: $skippedSmallArea, <3: $skippedFewPoints)"
-        )
-
         return ContourExtractionResult(
             contours = contours,
-            totalContours = totalFound,
-            skippedSmallArea = skippedSmallArea,
-            skippedTooFewPoints = skippedFewPoints
+            isWeak = bbox.confidence < 0.5f
         )
     }
-
 
     fun computePolygonArea(points: List<PointF>): Float {
         var area = 0f

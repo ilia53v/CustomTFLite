@@ -24,6 +24,7 @@ class YoloContourDrawer(private val displaySize: Size) {
     }
 
     private val contourStrokePaint = Paint().apply {
+        color = Color.RED
         style = Paint.Style.STROKE
         strokeWidth = 2f
         isAntiAlias = true
@@ -51,7 +52,7 @@ class YoloContourDrawer(private val displaySize: Size) {
         minAreaAbs: Float // может зависеть от размера кадра
     ) {
         val canvas = Canvas(overlayBitmap)
-        canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+        canvas.drawColor(Color.RED, PorterDuff.Mode.CLEAR)
         for (i in bboxes.indices) {
             val (topLeft, bottomRight, confidence) = bboxes[i]
             if (confidence < confidenceThreshold) continue

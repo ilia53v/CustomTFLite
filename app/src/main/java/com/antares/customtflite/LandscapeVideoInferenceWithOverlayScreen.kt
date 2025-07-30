@@ -1,21 +1,16 @@
 package com.antares.customtflite
 
-import android.graphics.Bitmap
-import android.graphics.PointF
 import android.net.Uri
-import android.util.Size
-import android.widget.FrameLayout
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,17 +22,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import com.antares.customtflite.data.OverlayFrame
+import com.antares.customtflite.ver2.VideoWithInference
 import com.antares.customtflite.ver2.YoloContourDrawer
 import com.antares.customtflite.ver2.player.VideoGLTextureView
 import com.antares.customtflite.ver2.player.VideoPlayerControlScreen
 import com.antares.customtflite.ver2.segmentor.YoloV8Segmentor
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Composable
 fun LandscapeVideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
@@ -47,10 +38,13 @@ fun LandscapeVideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
     val drawerRef = remember { mutableStateOf<YoloContourDrawer?>(null) }
     val scope = rememberCoroutineScope()
     val lastInferenceTime = remember { mutableStateOf(0L) }
-    val inferenceIntervalMs = 150L
+    val inferenceIntervalMs = 0L
     val lastSize = remember { mutableStateOf<Pair<Int, Int>?>(null) }
     val isProcessing = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
     val confidenceThreshold = 0.35f
+
+    var isPlaying by remember { mutableStateOf(false) }
+    var speed by remember { mutableStateOf(0.2f) }
 
     val videoLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -62,100 +56,20 @@ fun LandscapeVideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
             .background(Color.Black)
     ) {
         // Отображение видео с оверлеем
-        videoUri?.let { uri ->
-            AndroidView(factory = { context ->
-                FrameLayout(context).apply {
-                    val videoView = VideoGLTextureView(context).apply {
-                        layoutParams = FrameLayout.LayoutParams(
-                            FrameLayout.LayoutParams.MATCH_PARENT,
-                            FrameLayout.LayoutParams.MATCH_PARENT
-                        )
-                        setVideoUri(uri)
-                        setPlaybackSpeed(0.25f)
-                        videoViewRef.value = this
-                    }
-
-                    videoView.setOnFrameRequested {
-                        if (isProcessing.get()) {
-                            videoView.markFrameProcessed()
-                            return@setOnFrameRequested
-                        }
-
-                        val now = System.currentTimeMillis()
-                        if (now - lastInferenceTime.value < inferenceIntervalMs) {
-                            videoView.markFrameProcessed()
-                            return@setOnFrameRequested
-                        }
-
-                        isProcessing.set(true)
-                        lastInferenceTime.value = now
-
-                        scope.launch(Dispatchers.Default) {
-                            val bitmap = videoView.captureFrame() ?: run {
-                                videoView.markFrameProcessed()
-                                isProcessing.set(false)
-                                return@launch
-                            }
-
-                            if (lastSize.value != (bitmap.width to bitmap.height)) {
-                                drawerRef.value = YoloContourDrawer(Size(bitmap.width, bitmap.height))
-                                lastSize.value = bitmap.width to bitmap.height
-                            }
-
-                            val frozenFrame = bitmap.copy(Bitmap.Config.ARGB_8888, true)
-                            val resizedFrame = Bitmap.createScaledBitmap(frozenFrame, 320, 320, true)
-                            val (contours, _, objects) = yolo.runInference(resizedFrame, confidenceThreshold)
-
-                            val scaleX = frozenFrame.width / 320f
-                            val scaleY = frozenFrame.height / 320f
-
-                            val bboxList = objects.map {
-                                val tl = PointF(it.topLeft.x * scaleX, it.topLeft.y * scaleY)
-                                val br = PointF(it.bottomRight.x * scaleX, it.bottomRight.y * scaleY)
-                                Triple(tl, br, it.confidence)
-                            }
-
-                            val scaledContours = contours.map { group ->
-                                group.map { contour ->
-                                    contour.map { pt -> PointF(pt.x * scaleX, pt.y * scaleY) }
-                                }
-                            }
-
-                            val drawer = drawerRef.value ?: run {
-                                videoView.markFrameProcessed()
-                                isProcessing.set(false)
-                                return@launch
-                            }
-
-                            val minAreaAbs = 0.0002f * frozenFrame.width * frozenFrame.height
-
-                            drawer.drawOverlay(
-                                bboxes = bboxList,
-                                contours = scaledContours,
-                                confidenceThreshold = confidenceThreshold,
-                                minAreaAbs = minAreaAbs // = 0.01f
-                            )
-
-                            withContext(Dispatchers.Main) {
-                                val overlay = drawer.getOverlayBitmap()
-                                overlayBitmapRef.value = OverlayFrame(overlay, frozenFrame)
-                            }
-                            videoView.markFrameProcessed()
-                            isProcessing.set(false)
-                        }
-                    }
-
-                    addView(videoView)
-                }
-            }, modifier = Modifier.fillMaxSize())
-
-            overlayBitmapRef.value?.let { overlay ->
-                Image(
-                    bitmap = overlay.image.asImageBitmap(),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
+        videoUri?.let {
+            VideoWithInference(
+                it,
+                videoViewRef,
+                isProcessing,
+                lastInferenceTime,
+                inferenceIntervalMs,
+                scope,
+                lastSize,
+                drawerRef,
+                yolo,
+                confidenceThreshold,
+                overlayBitmapRef,
+                speed)
         }
 
         // Кнопка выбора видео
@@ -164,9 +78,47 @@ fun LandscapeVideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                 .align(Alignment.TopStart)
                 .padding(6.dp)
         ) {
-            Button(onClick = { videoLauncher.launch("video/*") }) {
-                Text("Открыть видео")
+            Row(horizontalArrangement = Arrangement.SpaceBetween){
+                Button(modifier = Modifier.weight(1f),
+                    onClick = {
+                        videoLauncher.launch("video/*")
+                    }
+                )
+                {
+                    Text("Открыть видео")
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                Row(modifier = Modifier.weight(2f),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(onClick = {
+                        if (isPlaying) {
+                            videoViewRef.value?.pause()
+                        } else {
+                            videoViewRef.value?.setPlaybackSpeed(speed)
+                            videoViewRef.value?.play()
+                        }
+                        isPlaying = !isPlaying
+                    }) {
+                        Text(if (isPlaying) "Пауза" else "Воспроизвести")
+                    }
+
+                    Button(modifier = Modifier.wrapContentWidth(),
+                        onClick = {
+                            speed = when (speed) {
+                                0.20f -> 0.25f
+                                0.25f -> 0.5f
+                                0.5f -> 0.75f
+                                0.75f -> 1.0f
+                                1.0f -> 1.25f
+                                else -> 0.2f
+                            }
+                            videoViewRef.value?.setPlaybackSpeed(speed)
+                        }) {
+                        Text("Скорость x$speed")
+                    }
+                }
             }
+
         }
 
         // Управление видео
@@ -178,7 +130,9 @@ fun LandscapeVideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
         ) {
             VideoPlayerControlScreen(
                 videoUri = videoUri,
-                videoViewRef = videoViewRef
+                videoViewRef = videoViewRef,
+                isPlaying = isPlaying,
+                speed = speed
             )
         }
     }

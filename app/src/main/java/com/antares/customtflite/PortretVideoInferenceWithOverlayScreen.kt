@@ -167,9 +167,11 @@ fun PortretVideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
             }
         }
 
-        VideoPlayerControlScreen(
+        /*VideoPlayerControlScreen(
             videoUri = videoUri,
-            videoViewRef = videoViewRef
-        )
+            videoViewRef = videoViewRef,
+            isPlaying = is,
+            speed = ,
+        )*/
     }
 }

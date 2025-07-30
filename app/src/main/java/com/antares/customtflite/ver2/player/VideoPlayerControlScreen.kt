@@ -26,13 +26,15 @@ import kotlinx.coroutines.delay
 fun VideoPlayerControlScreen(
     videoUri: Uri?,
     videoViewRef: MutableState<VideoGLTextureView?>,
+    isPlaying: Boolean,
+    speed: Float,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    var isPlaying by remember { mutableStateOf(false) }
+
     var volume by remember { mutableStateOf(1.0f) }
-    var speed by remember { mutableStateOf(0.25f) }
+
     var duration by remember { mutableStateOf(0) }
     var position by remember { mutableStateOf(0) }
 
@@ -43,12 +45,12 @@ fun VideoPlayerControlScreen(
                 position = it.getCurrentPosition()
                 duration = it.getDuration()
             }
-            delay(500L)
+            delay(300L)
         }
     }
 
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        /*Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Button(onClick = {
                 if (isPlaying) {
                     videoViewRef.value?.pause()
@@ -73,7 +75,7 @@ fun VideoPlayerControlScreen(
             }) {
                 Text("Скорость x$speed")
             }
-        }
+        }*/
 
         Text("Громкость: ${(volume * 100).toInt()}%")
         Slider(
