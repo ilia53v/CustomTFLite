@@ -227,8 +227,7 @@ class YoloV8Segmentor(private val context: Context) {
                 maskHeight = 320,
                 threshold = confidenceThreshold,
                 bbox = bbox,
-                displaySize = Size(bitmap.width, bitmap.height),
-                isWeak = isWeak
+                displaySize = Size(bitmap.width, bitmap.height)
             )
 
             if (result.contours.isNotEmpty()) {

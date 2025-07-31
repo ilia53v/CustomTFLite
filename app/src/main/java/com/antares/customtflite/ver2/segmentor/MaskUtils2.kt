@@ -157,7 +157,7 @@ object MaskUtils2 {
         )
     }*/
     //отрисовываются оба контура, но не всегда
-    fun extractContoursFromMask(
+    /*fun extractContoursFromMask(
         mask: Array<FloatArray>,
         maskWidth: Int,
         maskHeight: Int,
@@ -226,7 +226,72 @@ object MaskUtils2 {
             contours = contours,
             isWeak = bbox.confidence < 0.5f
         )
+    }*/
+
+    fun extractContoursFromMask(
+        mask: Array<FloatArray>,
+        maskWidth: Int,
+        maskHeight: Int,
+        threshold: Float,
+        bbox: YoloObject,
+        displaySize: Size,
+        padding: Float = 4f, // дополнительный отступ вокруг bbox
+        minAreaRatio: Float = 0.0005f // отфильтровывает слишком маленькие области
+    ): ContourExtractionResult {
+        val contours = mutableListOf<List<PointF>>()
+        val visited = Array(maskHeight) { BooleanArray(maskWidth) }
+
+        val scaleX = displaySize.width / maskWidth.toFloat()
+        val scaleY = displaySize.height / maskHeight.toFloat()
+
+        val left = (bbox.topLeft.x - padding).coerceAtLeast(0f)
+        val right = (bbox.bottomRight.x + padding).coerceAtMost(displaySize.width.toFloat())
+        val top = (bbox.topLeft.y - padding).coerceAtLeast(0f)
+        val bottom = (bbox.bottomRight.y + padding).coerceAtMost(displaySize.height.toFloat())
+
+        val minAreaAbs = displaySize.width * displaySize.height * minAreaRatio
+
+        for (y in 0 until maskHeight) {
+            for (x in 0 until maskWidth) {
+                if (mask[y][x] < threshold || visited[y][x]) continue
+
+                val rawContour = getConnectedContour(mask, x, y, threshold, visited)
+                if (rawContour.size < 3) {
+                    Log.d("ContourSkip", "Contour skipped: < 3 points (${rawContour.size})")
+                    continue
+                }
+
+                // Масштабируем в размер displaySize
+                val scaled = rawContour.map { PointF(it.x * scaleX, it.y * scaleY) }
+
+                val areaRaw = computePolygonArea(scaled)
+                Log.d("ContourRaw", "Raw contour area = $areaRaw, points = ${scaled.size}")
+
+                // Обрезаем контур по bbox + padding
+                val inside = scaled.filter { it.x in left..right && it.y in top..bottom }
+                if (inside.size < 3) {
+                    Log.d("ContourSkip", "Contour skipped after bbox crop: < 3 points (${inside.size})")
+                    continue
+                }
+
+                val area = computePolygonArea(inside)
+                if (area < minAreaAbs) {
+                    Log.d("ContourSkip", "Contour skipped: area too small = $area, minAreaAbs = $minAreaAbs")
+                    continue
+                }
+
+                val simplified = simplifyContour(inside)
+                Log.d("ContourDebug", "Contour kept: area = $area, points = ${simplified.size}")
+                contours.add(simplified)
+            }
+        }
+
+        return ContourExtractionResult(
+            contours = contours,
+            isWeak = bbox.confidence < 0.5f
+        )
     }
+
 
     fun computePolygonArea(points: List<PointF>): Float {
         var area = 0f
