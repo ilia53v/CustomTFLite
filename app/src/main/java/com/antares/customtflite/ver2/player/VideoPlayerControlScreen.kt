@@ -50,33 +50,6 @@ fun VideoPlayerControlScreen(
     }
 
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        /*Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Button(onClick = {
-                if (isPlaying) {
-                    videoViewRef.value?.pause()
-                } else {
-                    videoViewRef.value?.play()
-                }
-                isPlaying = !isPlaying
-            }) {
-                Text(if (isPlaying) "Пауза" else "Воспроизвести")
-            }
-
-            Button(modifier = Modifier.wrapContentWidth(),
-                onClick = {
-                speed = when (speed) {
-                    0.25f -> 0.5f
-                    0.5f -> 0.75f
-                    0.75f -> 1.0f
-                    1.0f -> 1.25f
-                    else -> 0.25f
-                }
-                videoViewRef.value?.setPlaybackSpeed(speed)
-            }) {
-                Text("Скорость x$speed")
-            }
-        }*/
-
         Text("Громкость: ${(volume * 100).toInt()}%")
         Slider(
             value = volume,

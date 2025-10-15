@@ -1,4 +1,4 @@
-package com.antares.customtflite
+package com.antares.customtflite.ver2
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -10,11 +10,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -24,8 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.antares.customtflite.data.OverlayFrame
-import com.antares.customtflite.ver2.VideoWithInference
-import com.antares.customtflite.ver2.YoloContourDrawer
+import com.antares.customtflite.ver2.player.SpeedDropdownMenuSingle
 import com.antares.customtflite.ver2.player.VideoGLTextureView
 import com.antares.customtflite.ver2.player.VideoPlayerControlScreen
 import com.antares.customtflite.ver2.segmentor.YoloV8Segmentor
@@ -37,14 +37,16 @@ fun LandscapeVideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
     val overlayBitmapRef = remember { mutableStateOf<OverlayFrame?>(null) }
     val drawerRef = remember { mutableStateOf<YoloContourDrawer?>(null) }
     val scope = rememberCoroutineScope()
-    val lastInferenceTime = remember { mutableStateOf(0L) }
+    val lastInferenceTime = remember { mutableLongStateOf(0L) }
     val inferenceIntervalMs = 0L
     val lastSize = remember { mutableStateOf<Pair<Int, Int>?>(null) }
     val isProcessing = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
     val confidenceThreshold = 0.35f
 
+    var selectedSpeed by remember { mutableStateOf<Float?>(0.1f) }
+
     var isPlaying by remember { mutableStateOf(false) }
-    var speed by remember { mutableStateOf(0.2f) }
+    val speed by remember { mutableFloatStateOf(0.15f) }
 
     val videoLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -101,21 +103,11 @@ fun LandscapeVideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                     }) {
                         Text(if (isPlaying) "Пауза" else "Воспроизвести")
                     }
-
-                    Button(modifier = Modifier.wrapContentWidth(),
-                        onClick = {
-                            speed = when (speed) {
-                                0.20f -> 0.25f
-                                0.25f -> 0.5f
-                                0.5f -> 0.75f
-                                0.75f -> 1.0f
-                                1.0f -> 1.25f
-                                else -> 0.2f
-                            }
-                            videoViewRef.value?.setPlaybackSpeed(speed)
-                        }) {
-                        Text("Скорость x$speed")
-                    }
+                    SpeedDropdownMenuSingle(
+                        selectedSpeed = selectedSpeed,
+                        onSpeedSelected = { selectedSpeed = it },
+                        videoViewRef = videoViewRef
+                    )
                 }
             }
 

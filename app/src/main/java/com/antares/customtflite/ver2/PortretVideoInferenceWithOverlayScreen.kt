@@ -1,4 +1,4 @@
-package com.antares.customtflite
+package com.antares.customtflite.ver2
 
 import android.graphics.Bitmap
 import android.graphics.PointF
@@ -28,9 +28,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.antares.customtflite.data.OverlayFrame
-import com.antares.customtflite.ver2.YoloContourDrawer
 import com.antares.customtflite.ver2.player.VideoGLTextureView
-import com.antares.customtflite.ver2.player.VideoPlayerControlScreen
 import com.antares.customtflite.ver2.segmentor.YoloV8Segmentor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

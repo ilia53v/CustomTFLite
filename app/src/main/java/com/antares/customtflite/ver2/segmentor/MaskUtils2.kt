@@ -26,51 +26,6 @@ object MaskUtils2 {
     private var reusableMask: FloatArray? = null
     private var reusableProtoBuffer: FloatArray? = null
 
-/*    fun computeMasks(
-        maskCoeffs: Array<FloatArray>,
-        protos: Array<Array<FloatArray>> // [32][320][320]
-    ): List<FloatArray> {
-        val channels = protos.size              // 32
-        val height = protos[0].size             // 320
-        val width = protos[0][0].size           // 320
-        val hw = height * width
-        val protoSize = hw * channels
-
-        val protoBuffer = reusableProtoBuffer?.takeIf { it.size == protoSize }
-            ?: FloatArray(protoSize).also { reusableProtoBuffer = it }
-
-        // Flatten protos: [C][H][W] -> [H*W*C]
-        for (c in 0 until channels) {
-            for (y in 0 until height) {
-                for (x in 0 until width) {
-                    val index = (y * width + x) * channels + c
-                    protoBuffer[index] = protos[c][y][x]
-                }
-            }
-        }
-
-        val masks = ArrayList<FloatArray>(minOf(maskCoeffs.size, MAX_MASKS))
-
-        for (coeffs in maskCoeffs.take(MAX_MASKS)) {
-            val mask = reusableMask?.takeIf { it.size == hw }
-                ?: FloatArray(hw).also { reusableMask = it }
-
-            val useC = minOf(coeffs.size, channels)
-
-            for (i in 0 until hw) {
-                var sum = 0f
-                for (c in 0 until useC) {
-                    sum += coeffs[c] * protoBuffer[i * channels + c]
-                }
-                mask[i] = sigmoid(sum)
-            }
-
-            masks.add(mask.copyOf())
-        }
-
-        return masks
-    }*/
-
     fun computeMasks(
         maskCoeffs: Array<FloatArray>,
         protos: Array<Array<Array<FloatArray>>> // [1][320][320][32]
@@ -256,8 +211,8 @@ object MaskUtils2 {
                 if (mask[y][x] < threshold || visited[y][x]) continue
 
                 val rawContour = getConnectedContour(mask, x, y, threshold, visited)
-                if (rawContour.size < 3) {
-                    Log.d("ContourSkip", "Contour skipped: < 3 points (${rawContour.size})")
+                if (rawContour.size < 2) {
+                    Log.d("ContourSkip", "Contour skipped: < 2 points (${rawContour.size})")
                     continue
                 }
 
@@ -269,8 +224,8 @@ object MaskUtils2 {
 
                 // Обрезаем контур по bbox + padding
                 val inside = scaled.filter { it.x in left..right && it.y in top..bottom }
-                if (inside.size < 3) {
-                    Log.d("ContourSkip", "Contour skipped after bbox crop: < 3 points (${inside.size})")
+                if (inside.size < 2) {
+                    Log.d("ContourSkip", "Contour skipped after bbox crop: < 2 points (${inside.size})")
                     continue
                 }
 
@@ -291,7 +246,6 @@ object MaskUtils2 {
             isWeak = bbox.confidence < 0.5f
         )
     }
-
 
     fun computePolygonArea(points: List<PointF>): Float {
         var area = 0f
