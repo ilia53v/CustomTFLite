@@ -35,6 +35,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 //портретная ориентация
+/*
 @Composable
 fun PortretVideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
     var videoUri by remember { mutableStateOf<Uri?>(null) }
@@ -165,11 +166,14 @@ fun PortretVideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
             }
         }
 
-        /*VideoPlayerControlScreen(
+        */
+/*VideoPlayerControlScreen(
             videoUri = videoUri,
             videoViewRef = videoViewRef,
             isPlaying = is,
             speed = ,
         )*/
+
     }
 }
+*/

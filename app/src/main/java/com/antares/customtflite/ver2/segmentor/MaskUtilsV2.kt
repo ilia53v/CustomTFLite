@@ -16,8 +16,18 @@ import com.antares.customtflite.data.Detection2
 import com.antares.customtflite.data.YoloObject
 import com.antares.customtflite.data.simplifyContour
 import com.antares.customtflite.ver2.traceBoundary
+import java.nio.ByteBuffer
 
-object MaskUtils2 {
+data class PreprocessResultV2(
+    val inputBuffer: ByteBuffer,
+    val scale: Float,
+    val padX: Int,
+    val padY: Int,
+    val newWidth: Int,
+    val newHeight: Int
+)
+
+object MaskUtilsV2 {
 
     private const val MAX_MASKS = 5
     private const val MIN_CONTOUR_POINTS = 3
@@ -76,19 +86,24 @@ object MaskUtils2 {
         threshold: Float,
         bbox: YoloObject,
         displaySize: Size,
-        padding: Float = 4f, // дополнительный отступ вокруг bbox
-        minAreaRatio: Float = 0.0005f // отфильтровывает слишком маленькие области
+        scale: Float = 1f,       // scale из letterbox
+        padX: Float = 0f,        // padX из letterbox
+        padY: Float = 0f,        // padY из letterbox
+        padding: Float = 4f,     // дополнительный отступ вокруг bbox
+        minAreaRatio: Float = 0.0005f
     ): ContourExtractionResult {
+
         val contours = mutableListOf<List<PointF>>()
         val visited = Array(maskHeight) { BooleanArray(maskWidth) }
 
         val scaleX = displaySize.width / maskWidth.toFloat()
         val scaleY = displaySize.height / maskHeight.toFloat()
 
-        val left = (bbox.topLeft.x - padding).coerceAtLeast(0f)
-        val right = (bbox.bottomRight.x + padding).coerceAtMost(displaySize.width.toFloat())
-        val top = (bbox.topLeft.y - padding).coerceAtLeast(0f)
-        val bottom = (bbox.bottomRight.y + padding).coerceAtMost(displaySize.height.toFloat())
+        // Корректируем bbox по letterbox: сначала масштабируем, потом сдвигаем с паддингом
+        val left = ((bbox.topLeft.x - padX) / scale - padding).coerceAtLeast(0f)
+        val right = ((bbox.bottomRight.x - padX) / scale + padding).coerceAtMost(displaySize.width.toFloat())
+        val top = ((bbox.topLeft.y - padY) / scale - padding).coerceAtLeast(0f)
+        val bottom = ((bbox.bottomRight.y - padY) / scale + padding).coerceAtMost(displaySize.height.toFloat())
 
         val minAreaAbs = displaySize.width * displaySize.height * minAreaRatio
 

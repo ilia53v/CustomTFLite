@@ -29,9 +29,10 @@ import com.antares.customtflite.ver2.player.SpeedDropdownMenuSingle
 import com.antares.customtflite.ver2.player.VideoGLTextureView
 import com.antares.customtflite.ver2.player.VideoPlayerControlScreen
 import com.antares.customtflite.ver2.segmentor.YoloV8Segmentor
+import com.antares.customtflite.ver2.segmentor.YoloV8SegmentorV2
 
 @Composable
-fun LandscapeVideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
+fun LandscapeVideoInferenceWithOverlayScreen(yolo: YoloV8SegmentorV2) {
     var videoUri by remember { mutableStateOf<Uri?>(null) }
     val videoViewRef = remember { mutableStateOf<VideoGLTextureView?>(null) }
     val overlayBitmapRef = remember { mutableStateOf<OverlayFrame?>(null) }
@@ -55,7 +56,7 @@ fun LandscapeVideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(Color.White)
     ) {
         // Отображение видео с оверлеем
         videoUri?.let {
@@ -71,7 +72,8 @@ fun LandscapeVideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                 yolo,
                 confidenceThreshold,
                 overlayBitmapRef,
-                speed)
+                speed,
+                isPlayingState = remember { mutableStateOf(isPlaying) })
         }
 
         // Кнопка выбора видео
@@ -90,7 +92,7 @@ fun LandscapeVideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                     Text("Открыть видео")
                 }
                 Spacer(modifier = Modifier.weight(1f))
-                Row(modifier = Modifier.weight(2f),
+                Row(modifier = Modifier.weight(1.5f),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Button(onClick = {
                         if (isPlaying) {
@@ -110,14 +112,12 @@ fun LandscapeVideoInferenceWithOverlayScreen(yolo: YoloV8Segmentor) {
                     )
                 }
             }
-
         }
 
         // Управление видео
         Box(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 16.dp)
+                .align(Alignment.BottomEnd)
                 .padding(bottom = 6.dp)
         ) {
             VideoPlayerControlScreen(

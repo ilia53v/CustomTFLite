@@ -20,7 +20,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.ByteBuffer
-
+/////////НИКОГДА НЕ СОХРАНЯТЬ ЭТО ВИДЕО ТАК.
+//////////СЛИШКОМ ДОЛГО И НЕ РЕНТАБЕЛЬНО
 
 /*
 suspend fun saveVideoWithInferenceCanvasOptimized(
