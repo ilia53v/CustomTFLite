@@ -46,6 +46,7 @@ fun VideoPlayerControlScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    var value by remember { mutableStateOf(0f) }
 
     var volume by remember { mutableStateOf(1.0f) }
     var duration by remember { mutableStateOf(0) }
@@ -75,11 +76,10 @@ fun VideoPlayerControlScreen(
                 .fillMaxHeight()
                 .width(60.dp)
         ) {
-            var value by remember { mutableStateOf(0f) }
             VerticalSlider(
-                value = value,
+                value = volume,
                 onValueChange = {
-                    value = it
+                    volume = it
                     videoViewRef.value?.setVolume(volume)
                 },
                 modifier = Modifier
